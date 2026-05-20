@@ -178,9 +178,4 @@ HeaderFilterRegex: '.*'
 # Use the .clang-format file for suggested fixes
 FormatStyle: file
 
-# =============================================================================
-# SYSTEM HEADERS
-# =============================================================================
-# Don't analyze system headers
-SystemHeaders: false
 ...
