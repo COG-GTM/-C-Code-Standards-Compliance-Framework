@@ -152,7 +152,7 @@ generate_manually() {
     echo "[" > compile_commands.json
     
     FIRST=true
-    for file in $FILES; do
+    while IFS= read -r file; do
         # Get absolute path
         ABS_FILE="$CURRENT_DIR/${file#./}"
         
@@ -188,7 +188,7 @@ generate_manually() {
     ]
   }
 EOF
-    done
+    done <<< "$FILES"
     
     echo "" >> compile_commands.json
     echo "]" >> compile_commands.json

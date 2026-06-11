@@ -136,7 +136,7 @@ TIDY_WARNINGS=0
 
 print_section "clang-format check"
 
-for file in $FILES; do
+while IFS= read -r file; do
     if $FIX_MODE; then
         # Apply formatting fixes
         if clang-format -i --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
@@ -156,7 +156,7 @@ for file in $FILES; do
             FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
         fi
     fi
-done
+done <<< "$FILES"
 
 if [ $FORMAT_ERRORS -eq 0 ]; then
     echo ""
@@ -181,7 +181,7 @@ SOURCE_FILES=$(echo "$FILES" | grep -E '\.(c|cpp|cc|cxx)$' || true)
 if [ -z "$SOURCE_FILES" ]; then
     print_info "No source files to analyze (headers only)"
 else
-    for file in $SOURCE_FILES; do
+    while IFS= read -r file; do
         # Run clang-tidy
         OUTPUT=$(clang-tidy \
             --config-file="$PROJECT_ROOT/.clang-tidy" \
@@ -210,7 +210,7 @@ else
         else
             print_pass "$file"
         fi
-    done
+    done <<< "$SOURCE_FILES"
 fi
 
 if [ $TIDY_ERRORS -eq 0 ] && [ $TIDY_WARNINGS -eq 0 ]; then

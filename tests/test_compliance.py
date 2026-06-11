@@ -279,6 +279,89 @@ class TestExampleFiles:
 
 
 # =============================================================================
+# Security Regression Tests
+# =============================================================================
+
+class TestSecurityRegressions:
+    """Regression tests for findings from the vulnerability assessment report."""
+
+    def test_unsafe_buffer_handling_check_not_disabled_vuln_002(self):
+        """VULN-002 (CWE-693): the DeprecatedOrUnsafeBufferHandling security
+        check must not be excluded from the enabled Checks list."""
+        config = (PROJECT_ROOT / ".clang-tidy").read_text()
+
+        checks_section = config.split("Checks:")[1].split("WarningsAsErrors:")[0]
+        assert (
+            "-clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling"
+            not in checks_section
+        ), "Unsafe buffer handling security check is disabled (VULN-002)"
+
+    @requires_clang_tidy
+    def test_unsafe_buffer_handling_warning_fires_vuln_002(self, tmp_path):
+        """VULN-002: clang-tidy must warn on insecure buffer functions like
+        memcpy() when using the framework configuration."""
+        # Strip the SystemHeaders key so the config parses on clang-tidy 14
+        # (VULN-001, fixed separately)
+        config_lines = [
+            line
+            for line in (PROJECT_ROOT / ".clang-tidy").read_text().splitlines()
+            if not line.startswith("SystemHeaders:")
+        ]
+        config_path = tmp_path / "clang-tidy-config.yaml"
+        config_path.write_text("\n".join(config_lines) + "\n")
+
+        source = tmp_path / "unsafe_buffer.c"
+        source.write_text(
+            "#include <string.h>\n"
+            "void copy_buffer(char *dest, const char *src, unsigned long len)\n"
+            "{\n"
+            "    memcpy(dest, src, len);\n"
+            "}\n"
+        )
+
+        result = subprocess.run(
+            ["clang-tidy", f"--config-file={config_path}", str(source), "--"],
+            capture_output=True,
+            text=True,
+        )
+
+        combined = result.stdout + result.stderr
+        assert (
+            "clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling"
+            in combined
+        ), "Expected memcpy() to trigger the unsafe buffer handling warning"
+
+    def test_scripts_do_not_use_unquoted_file_iteration_vuln_006(self):
+        """VULN-006 (CWE-78): shell scripts must not iterate file lists with
+        unquoted expansion, which word-splits filenames containing spaces,
+        newlines, or glob characters."""
+        for script_name in ["validate.sh", "generate-compile-commands.sh"]:
+            content = (SCRIPTS_DIR / script_name).read_text()
+            assert "for file in $FILES" not in content, \
+                f"{script_name} uses unquoted $FILES expansion (VULN-006)"
+            assert "for file in $SOURCE_FILES" not in content, \
+                f"{script_name} uses unquoted $SOURCE_FILES expansion (VULN-006)"
+
+    @requires_clang_format
+    def test_validate_script_handles_filenames_with_spaces_vuln_006(self, tmp_path):
+        """VULN-006: validate.sh must treat a filename containing spaces as a
+        single file instead of word-splitting it."""
+        source = tmp_path / "my source file.c"
+        source.write_text("int add_one(int value)\n{\n    return value + 1;\n}\n")
+
+        result = subprocess.run(
+            ["bash", str(SCRIPTS_DIR / "validate.sh"), str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+
+        combined = result.stdout + result.stderr
+        assert "Found 1 file(s)" in combined
+        assert "my source file.c" in combined
+        assert "No such file" not in combined
+
+
+# =============================================================================
 # Documentation Tests
 # =============================================================================
 
