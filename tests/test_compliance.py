@@ -13,6 +13,7 @@ Requirements:
 Run: pytest tests/test_compliance.py -v
 """
 
+import json
 import os
 import subprocess
 import shutil
@@ -359,6 +360,27 @@ class TestSecurityRegressions:
         assert "Found 1 file(s)" in combined
         assert "my source file.c" in combined
         assert "No such file" not in combined
+
+    def test_generated_compile_commands_is_valid_json_vuln_008(self, tmp_path):
+        """VULN-008: generate-compile-commands.sh must emit valid JSON with
+        each include flag as a separate array element."""
+        source = tmp_path / "main file.c"
+        source.write_text("int main(void)\n{\n    return 0;\n}\n")
+
+        result = subprocess.run(
+            ["bash", str(SCRIPTS_DIR / "generate-compile-commands.sh"), str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+
+        with open(tmp_path / "compile_commands.json") as f:
+            entries = json.load(f)
+
+        assert len(entries) == 1
+        arguments = entries[0]["arguments"]
+        assert "-I." in arguments
+        assert "-I./include" in arguments
 
 
 # =============================================================================

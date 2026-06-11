@@ -170,6 +170,14 @@ generate_manually() {
             echo "," >> compile_commands.json
         fi
         
+        # Format each include flag as a separate JSON array element
+        INCLUDE_JSON=""
+        IFS=' ' read -ra FLAGS <<< "$INCLUDE_FLAGS"
+        for flag in "${FLAGS[@]}"; do
+            INCLUDE_JSON="$INCLUDE_JSON      \"$flag\",
+"
+        done
+        
         # Write entry
         cat >> compile_commands.json << EOF
   {
@@ -181,8 +189,7 @@ generate_manually() {
       "$STD",
       "-Wall",
       "-Wextra",
-      $INCLUDE_FLAGS
-      "$ABS_FILE",
+$INCLUDE_JSON      "$ABS_FILE",
       "-o",
       "${ABS_FILE%.c*}.o"
     ]
@@ -192,9 +199,6 @@ EOF
     
     echo "" >> compile_commands.json
     echo "]" >> compile_commands.json
-    
-    # Fix the include flags formatting (they need to be separate array elements)
-    # This is a simplified version - proper JSON would split each -I flag
     
     FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
     print_success "Generated compile_commands.json with $FILE_COUNT entries"
