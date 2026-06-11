@@ -32,13 +32,14 @@ Checks: >
   -cert-dcl51-cpp,
   -misc-no-recursion,
   -readability-function-cognitive-complexity,
-  -readability-magic-numbers,
-  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+  -readability-magic-numbers
 
 # =============================================================================
 # CRITICAL CHECKS - Treated as errors (will cause non-zero exit code)
 # =============================================================================
 # These checks map to Critical severity rules and should block merges
+# DeprecatedOrUnsafeBufferHandling stays a warning (not an error) because the
+# C11 Annex K safe alternatives (memcpy_s, etc.) have limited platform support
 WarningsAsErrors: >
   bugprone-unused-return-value,
   clang-analyzer-core.NullDereference,
@@ -52,7 +53,8 @@ WarningsAsErrors: >
   bugprone-use-after-move,
   bugprone-double-free,
   bugprone-sizeof-expression,
-  bugprone-string-literal-with-embedded-nul
+  bugprone-string-literal-with-embedded-nul,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
 
 # =============================================================================
 # CHECK OPTIONS
