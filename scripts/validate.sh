@@ -218,12 +218,14 @@ pmd_checks() {
 }
 
 # SpotBugs: <BugInstance ... type='EI_EXPOSE_REP' ...> -> EI_EXPOSE_REP
+# The spotbugs-maven-plugin serializer emits single-quoted attributes; accept
+# double quotes too so other SpotBugs configurations are handled robustly.
 spotbugs_checks() {
     local report="$1"
     [ -f "$report" ] || return 0
     grep -oE "<BugInstance[^>]*>" "$report" \
-        | grep -oE "type='[^']*'" \
-        | sed -E "s/^type='//; s/'$//" || true
+        | grep -oE "type=['\"][^'\"]*['\"]" \
+        | sed -E "s/^type=['\"]//; s/['\"]\$//" || true
 }
 
 # -----------------------------------------------------------------------------
