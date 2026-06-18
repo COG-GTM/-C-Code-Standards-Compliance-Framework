@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="Code Standards Compliance"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+  <description>
+    PMD ruleset for the Code Standards Compliance Framework  (clang-tidy -> PMD).
+    PMD 6.55 ruleset syntax. Rules are grouped by the framework severity tier
+    they belong to (CRITICAL / MAJOR / MINOR); the tier semantics live in
+    rule-severity-mapping.yaml and are enforced by validate.sh + the JUnit suite.
+    SpotBugs covers the bytecode-level patterns (see spotbugs-exclude.xml and the
+    mapping); PMD covers the source-level patterns below.
+  </description>
+
+  <!-- ===================================================================== -->
+  <!-- CRITICAL                                                              -->
+  <!-- ===================================================================== -->
+
+  <!-- Rule 20: Check all return values -->
+  <rule ref="category/java/bestpractices.xml/CheckResultSet"/>
+
+  <!-- Rule 22: Prevent null pointer dereference -->
+  <rule ref="category/java/errorprone.xml/BrokenNullCheck"/>
+
+  <!-- Rule 23: Prevent resource leaks -->
+  <rule ref="category/java/errorprone.xml/CloseResource"/>
+  <rule ref="category/java/errorprone.xml/EmptyCatchBlock"/>
+
+  <!-- Rule 24: Prevent leaking internal references (was use-after-free) -->
+  <rule ref="category/java/bestpractices.xml/MethodReturnsInternalArray"/>
+  <rule ref="category/java/bestpractices.xml/ArrayIsStoredDirectly"/>
+
+  <!-- Rule 25: Dead / unwritten state (was uninitialized memory) -->
+  <rule ref="category/java/bestpractices.xml/UnusedAssignment"/>
+
+  <!-- Rule 26: Avoid insecure crypto APIs -->
+  <rule ref="category/java/security.xml/InsecureCryptoIv"/>
+  <rule ref="category/java/security.xml/HardCodedCryptoKey"/>
+
+  <!-- ===================================================================== -->
+  <!-- MAJOR                                                                 -->
+  <!-- ===================================================================== -->
+
+  <!-- Rule 30: Avoid narrowing conversions (loose; SpotBugs ICAST_* is primary) -->
+  <rule ref="category/java/performance.xml/AvoidUsingShortType"/>
+
+  <!-- Rule 32: Avoid redundant code -->
+  <rule ref="category/java/codestyle.xml/UnnecessaryReturn"/>
+  <rule ref="category/java/codestyle.xml/EmptyControlStatement"/>
+  <rule ref="category/java/codestyle.xml/UselessParentheses"/>
+
+  <!-- Rule 34: Thread safety -->
+  <rule ref="category/java/multithreading.xml/DoubleCheckedLocking"/>
+  <rule ref="category/java/multithreading.xml/NonThreadSafeSingleton"/>
+
+  <!-- Rule 35: Performance issues -->
+  <rule ref="category/java/performance.xml/AvoidInstantiatingObjectsInLoops"/>
+  <rule ref="category/java/performance.xml/UseStringBufferForStringAppends"/>
+
+  <!-- ===================================================================== -->
+  <!-- MINOR                                                                 -->
+  <!-- ===================================================================== -->
+
+  <!-- Rule 45: Avoid returning null (return an empty array instead) -->
+  <rule ref="category/java/errorprone.xml/ReturnEmptyArrayRatherThanNull"/>
+
+  <!-- Rule 46: Remove unused parameters / fields / locals -->
+  <rule ref="category/java/bestpractices.xml/UnusedFormalParameter">
+    <properties>
+      <!-- also flag unused parameters on public/protected methods -->
+      <property name="checkAll" value="true"/>
+    </properties>
+  </rule>
+  <rule ref="category/java/bestpractices.xml/UnusedPrivateField"/>
+  <rule ref="category/java/bestpractices.xml/UnusedLocalVariable"/>
+
+</ruleset>

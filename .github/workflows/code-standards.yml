@@ -1,0 +1,55 @@
+name: Code Standards
+
+# Java code-standards enforcement: Checkstyle (formatting/naming/braces) +
+# PMD + SpotBugs (bug/security/static analysis). SpotBugs crashes on newer JDKs,
+# so the whole job pins JDK 17 (temurin).
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  code-standards:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (SpotBugs requires JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # Compile + all three analysis goals run in ONE Maven invocation so that
+      # build-helper:add-source (which adds examples/ as a source root during the
+      # generate-sources phase) is in effect for Checkstyle and PMD. Splitting
+      # these into separate `mvn` invocations would hide examples/ from the
+      # source-scanning analyzers. failOnViolation/failOnError are false, so this
+      # generates the reports without hard-failing on the (intentionally messy)
+      # example code. The severity gate (scripts/validate.sh) parses these reports
+      # and is wired in once it is rewritten for Maven/JDK 17 in a later PR; the
+      # legacy clang-based validate.sh is intentionally NOT invoked here so this
+      # foundation PR's CI is green on its own.
+      - name: Compile and run Checkstyle + PMD + SpotBugs
+        run: >
+          mvn -B -ntp clean compile
+          checkstyle:checkstyle
+          pmd:pmd
+          com.github.spotbugs:spotbugs-maven-plugin:4.8.3.1:spotbugs
+
+      - name: Upload analysis reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-reports
+          path: |
+            target/checkstyle-result.xml
+            target/pmd.xml
+            target/spotbugsXml.xml
+          if-no-files-found: warn

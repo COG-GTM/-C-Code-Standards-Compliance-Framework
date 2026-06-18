@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtd/configuration_1_3.dtd">
+
+<!--
+  =============================================================================
+  Checkstyle configuration  (clang-format -> Checkstyle)
+  =============================================================================
+  Implements the MINOR-tier (warn-only) style rules of the Code Standards
+  Compliance Framework, plus the Rule 31 method-ordering check:
+
+    Rule 31  Avoid confusing overloads     -> OverloadMethodsDeclarationOrder
+    Rule 40  Consistent formatting/braces  -> LeftCurly (eol), RightCurly
+    Rule 41  Naming conventions            -> *Name checks (Java casing)
+    Rule 42  Always use braces             -> NeedBraces
+    Rule 43  Simplify boolean expressions  -> SimplifyBooleanExpression / Return
+
+  Severity is "warning": these checks never block a merge on their own. The
+  validate.sh script and the JUnit compliance suite classify findings by tier.
+  Brace style is the Java standard (opening brace at end of line), NOT Allman.
+  =============================================================================
+-->
+<module name="Checker">
+  <property name="severity" value="warning"/>
+  <property name="charset" value="UTF-8"/>
+  <property name="fileExtensions" value="java"/>
+
+  <module name="TreeWalker">
+
+    <!-- Allow //CHECKSTYLE:OFF / //CHECKSTYLE:ON suppression comments -->
+    <module name="SuppressionCommentFilter"/>
+
+    <!-- Allow @SuppressWarnings("checkstyle:RuleName") to suppress findings -->
+    <module name="SuppressWarningsHolder"/>
+
+    <!-- ===== Rule 31: Avoid confusing overloads ===== -->
+    <module name="OverloadMethodsDeclarationOrder"/>
+
+    <!-- ===== Rule 40: Consistent formatting / braces (Java standard, NOT Allman) ===== -->
+    <module name="LeftCurly">
+      <property name="option" value="eol"/>
+    </module>
+    <module name="RightCurly">
+      <property name="option" value="same"/>
+    </module>
+
+    <!-- ===== Rule 41: Naming conventions (Java casing) ===== -->
+    <!-- methods / variables / parameters: lowerCamelCase -->
+    <module name="MethodName"/>
+    <module name="MemberName"/>
+    <module name="LocalVariableName"/>
+    <module name="ParameterName"/>
+    <!-- constants (static final): UPPER_SNAKE_CASE -->
+    <module name="ConstantName"/>
+    <!-- types: UpperCamelCase -->
+    <module name="TypeName"/>
+    <!-- packages: lower.case.dotted -->
+    <module name="PackageName"/>
+
+    <!-- ===== Rule 42: Always use braces ===== -->
+    <module name="NeedBraces"/>
+
+    <!-- ===== Rule 43: Simplify boolean expressions ===== -->
+    <module name="SimplifyBooleanExpression"/>
+    <module name="SimplifyBooleanReturn"/>
+
+  </module>
+
+  <!-- Honour @SuppressWarnings("checkstyle:...") collected above -->
+  <module name="SuppressWarningsFilter"/>
+
+</module>

@@ -1,27 +1,38 @@
-# Build artifacts
-*.o
-*.obj
-*.exe
-*.out
-*.app
-*.a
-*.so
-*.dylib
-build/
-cmake-build-*/
-compile_commands.json
+# Maven / build artifacts
+target/
+*.class
+*.jar
+*.war
+*.ear
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+dependency-reduced-pom.xml
+
+# Maven wrapper (keep the wrapper scripts and the wrapper jar if present)
+!.mvn/wrapper/maven-wrapper.jar
+
+# Analysis tool output
+spotbugs.html
+pmd.html
+checkstyle-result.xml
 
 # IDE and editor
 .vscode/
 .idea/
+*.iml
+*.ipr
+*.iws
 *.swp
 *.swo
 *~
 .project
-.cproject
+.classpath
 .settings/
+.factorypath
 
-# Python
+# Python (test tooling that may still apply)
 __pycache__/
 *.pyc
 *.pyo
@@ -36,13 +47,10 @@ dist/
 Thumbs.db
 Desktop.ini
 
-# Test artifacts
+# Logs and temporary files
 *.log
-test_output/
-coverage/
-.coverage
-
-# Temporary files
 *.tmp
 *.temp
 *.bak
+.coverage
+coverage/
