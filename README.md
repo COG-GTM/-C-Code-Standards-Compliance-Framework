@@ -1,30 +1,34 @@
-# C/C++ Code Standards Compliance Framework
+# Java Code Standards Compliance Framework
 
-> **Centralized clang-format and clang-tidy configuration for safety-critical C/C++ development with Windsurf AI.**
+> **Centralized Checkstyle, PMD, and SpotBugs configuration for safety-critical Java development with Windsurf AI.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## Executive Summary (For Decision-Makers & Non-C Developers)
+## Executive Summary (For Decision-Makers & Non-Java Developers)
 
-### The Three Clang Tools Explained
+### The Three Java Tools Explained
 
-This framework uses **three related but different tools** from the LLVM/Clang project:
+This framework uses **three related but different tools** from the Java static-analysis ecosystem, orchestrated by **Apache Maven**:
 
 | Tool | Config File | What It Does | When It Runs |
 |------|-------------|--------------|--------------|
-| **clang-format** | `.clang-format` | Makes code look consistent (spacing, braces) | On save, or manually |
-| **clang-tidy** | `.clang-tidy` | Finds bugs and security issues | In CI/CD, or manually |
-| **clangd** | `.clangd` | Powers IDE features (autocomplete, go-to-definition, real-time errors) | Continuously in your editor |
+| **Checkstyle** | `checkstyle.xml` | Makes code look consistent (spacing, braces, naming) | On save, or via Maven |
+| **PMD + SpotBugs** | `pmd-ruleset.xml`, `spotbugs-exclude.xml` | Finds bugs and security issues | In CI/CD, or via Maven |
+| **Java Language Server** | `pom.xml` | Powers IDE features (autocomplete, go-to-definition, real-time errors) | Continuously in your editor |
 
-Think of them as **spell-check, grammar-check, and an intelligent writing assistant** for C/C++ code:
+Think of them as **spell-check, grammar-check, and an intelligent writing assistant** for Java code:
 
 | Tool | Analogy |
 |------|---------|
-| **clang-format** | Auto-formatting a Word doc to match a style guide |
-| **clang-tidy** | Grammarly flagging unclear sentences or errors |
-| **clangd** | A smart assistant that highlights issues as you type and helps you navigate |
+| **Checkstyle** | Auto-formatting a Word doc to match a style guide |
+| **PMD + SpotBugs** | Grammarly flagging unclear sentences or errors |
+| **Java Language Server** | A smart assistant that highlights issues as you type and helps you navigate |
+
+> **Tooling map (coming from C/C++):** `clang-format → Checkstyle`, `clang-tidy → PMD + SpotBugs`,
+> `clangd (LSP) → the Java language server reading pom.xml`. There is no `compile_commands.json`
+> in Java — **`pom.xml` is the project model** the language server reads directly.
 
 #### How They Work Together
 
@@ -33,48 +37,52 @@ Think of them as **spell-check, grammar-check, and an intelligent writing assist
 │                     YOUR EDITOR (Windsurf/VSCode)               │
 │                                                                 │
 │  ┌───────────────────────────────────────────────────────────┐ │
-│  │                      clangd                                │ │
-│  │         (runs continuously, powers IDE features)          │ │
+│  │              Java Language Server (JDT.LS)                 │ │
+│  │     (runs continuously, reads pom.xml, powers IDE)        │ │
 │  │                                                           │ │
 │  │  • Autocomplete suggestions                               │ │
-│  │  • Go-to-definition (Cmd+Click)                          │ │
+│  │  • Go-to-definition (Ctrl/Cmd+Click)                      │ │
 │  │  • Find all references                                    │ │
-│  │  • Real-time error squiggles (uses clang-tidy checks!)   │ │
+│  │  • Real-time error squiggles                              │ │
 │  │  • Hover documentation                                    │ │
-│  │  • Format on save (uses clang-format!)                   │ │
+│  │  • Format on save (Checkstyle-aligned)                    │ │
 │  └───────────────────────────────────────────────────────────┘ │
 │                              │                                  │
-│              ┌───────────────┴───────────────┐                 │
-│              ▼                               ▼                 │
-│       ┌─────────────┐                 ┌─────────────┐         │
-│       │.clang-format│                 │ .clang-tidy │         │
-│       │  (styling)  │                 │  (analysis) │         │
-│       └─────────────┘                 └─────────────┘         │
+│       ┌──────────────────────┼──────────────────────┐          │
+│       ▼                      ▼                      ▼          │
+│ ┌────────────┐      ┌─────────────────┐    ┌────────────────┐  │
+│ │ Checkstyle │      │  PMD + SpotBugs │    │     pom.xml    │  │
+│ │  (styling) │      │   (analysis)    │    │ (project model)│  │
+│ └────────────┘      └─────────────────┘    └────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-> **Key insight:** clangd **incorporates** both clang-format and clang-tidy! When you see real-time warnings in your editor, those come from clang-tidy rules. When you format on save, that uses clang-format. The `.clangd` file customizes how these run in your IDE.
+> **Key insight:** Maven is the single source of truth. The same `checkstyle.xml`,
+> `pmd-ruleset.xml`, and `spotbugs-exclude.xml` that run in CI are surfaced live in your editor
+> via the Checkstyle/PMD/SpotBugs VS Code extensions, while the language server reads `pom.xml`
+> to understand your project — so what you see while typing matches what CI enforces.
 
-These are **free, industry-standard tools**. The challenge? They come with **300+ configuration options** and no opinion on what's correct.
+These are **free, industry-standard tools**. The challenge? Between them they ship **hundreds of
+checks** with no opinion on what's important.
 
 ### Why Not Just Use the Tools Directly?
 
 | Without This Framework | With This Framework |
 |------------------------|---------------------|
-| Spend **4-8 hours** researching 300+ options | Copy 2 files, **ready in 5 minutes** |
+| Spend **4-8 hours** wiring up three Maven plugins | Copy a few files, **ready in minutes** |
 | Every warning looks the same priority | Clear **Critical/Major/Minor** classification |
 | Describe issues with jargon | Reference by **Rule ID** ("Rule 21 violation") |
 | Write your own CI/CD integration | **Copy-paste** GitHub Actions example |
-| Hope you didn't miss important security checks | **Pre-configured** with CERT security standards |
+| Hope you didn't miss important security checks | **Pre-configured** with SEI CERT-inspired checks |
 | AI assistant gives generic help | AI **enforces your rules** with fix suggestions |
 
 ### The Analogy
 
-**clang-format + clang-tidy alone** = A blank spreadsheet app
+**Checkstyle + PMD + SpotBugs alone** = A blank spreadsheet app
 
 **This framework** = A pre-built accounting template with:
 - ✅ Columns already labeled
-- ✅ Formulas already set up  
+- ✅ Formulas already set up
 - ✅ Color-coding for "over budget" (red) vs "on track" (green)
 - ✅ Instructions for auditors
 - ✅ One-click "Generate Report" button
@@ -86,8 +94,8 @@ You *could* build all that yourself. But why would you?
 | Metric | Value |
 |--------|-------|
 | **Setup time saved** | 4-8 hours per project |
-| **Bugs caught** | Null dereference, buffer overflow, memory leaks, use-after-free |
-| **Security standards** | CERT C, MISRA-inspired checks |
+| **Bugs caught** | Null dereference, injection, resource leaks, exposed internal state, insecure crypto |
+| **Security standards** | SEI CERT Oracle Coding Standard for Java, CWE-mapped checks |
 | **AI integration** | Windsurf Cascade enforces rules automatically |
 | **Cost** | Free (MIT License) |
 
@@ -105,7 +113,7 @@ You *could* build all that yourself. But why would you?
 - [Rule Reference](#rule-reference)
 - [Repository Contents](#repository-contents)
 - [CI/CD Integration](#cicd-integration)
-- [clangd IDE Integration](#clangd-ide-integration)
+- [Java IDE Integration](#java-ide-integration)
 - [Windsurf AI Integration](#windsurf-ai-integration)
 - [Customization](#customization)
 - [Requirements](#requirements)
@@ -115,12 +123,15 @@ You *could* build all that yourself. But why would you?
 
 ## What Is This?
 
-This framework provides a **complete, ready-to-use code standards enforcement system** for C and C++ projects. It combines:
+This framework provides a **complete, ready-to-use code standards enforcement system** for Java projects. It combines:
 
-1. **clang-format** - Automatic code formatting (consistent style)
-2. **clang-tidy** - Static analysis (bug detection, security checks)
+1. **Checkstyle** - Automatic style enforcement (formatting, naming, braces)
+2. **PMD + SpotBugs** - Static analysis (bug detection, security checks)
 3. **Severity Classification** - Triage issues as Critical, Major, or Minor
 4. **Windsurf AI Rules** - Intelligent code review with fix suggestions
+
+All three analyzers run through **Apache Maven** (`pom.xml`), so the same rules apply in your IDE,
+on the command line, and in CI.
 
 Instead of writing rules from scratch or relying on inconsistent natural language guidelines, this framework gives you **deterministic, tool-enforced standards** that work the same way every time.
 
@@ -134,7 +145,7 @@ Teams often struggle with code standards because:
 
 - **Natural language rules are ambiguous** - "Use good variable names" means different things to different people
 - **Manual code review is inconsistent** - Reviewers catch different issues on different days
-- **Setting up tools is time-consuming** - clang-tidy has 300+ checks with complex configuration
+- **Setting up tools is time-consuming** - Checkstyle, PMD, and SpotBugs together expose hundreds of rules with complex configuration
 - **No clear priority** - Which violations should block a merge vs. just warn?
 
 ### The Solution
@@ -144,16 +155,16 @@ This framework solves these problems by providing:
 | Benefit | Description |
 |---------|-------------|
 | **Deterministic Enforcement** | Same code = same result, every time |
-| **Pre-configured for Safety** | CERT, MISRA-inspired rules out of the box |
+| **Pre-configured for Safety** | SEI CERT-inspired rules out of the box |
 | **Severity Classification** | Clear Critical/Major/Minor triage |
 | **AI-Assisted Review** | Windsurf explains violations and suggests fixes |
-| **Drop-in Ready** | Copy configs to your project and run |
+| **Drop-in Ready** | Copy configs + `pom.xml` plugins to your project and run |
 | **CI/CD Ready** | Exit codes for pass/fail in pipelines |
 
 ### Key Benefits
 
-- **Catch bugs before runtime** - Null dereference, buffer overflow, use-after-free
-- **Enforce security standards** - CERT C, security-focused checks
+- **Catch bugs before runtime** - Null dereference, injection, resource leaks, exposed internal state
+- **Enforce security standards** - SEI CERT, CWE-mapped checks
 - **Reduce code review time** - Automated checks handle style and common bugs
 - **Onboard developers faster** - Clear, documented rules with examples
 - **Demonstrate compliance** - Traceable rule numbers for audits
@@ -164,19 +175,18 @@ This framework solves these problems by providing:
 
 ### Use This Framework When:
 
-- ✅ You're starting a new C/C++ project and want standards from day one
+- ✅ You're starting a new Java project and want standards from day one
 - ✅ You're adding static analysis to an existing codebase
-- ✅ You need safety-critical code standards (automotive, medical, aerospace, defense)
+- ✅ You need safety-critical code standards (automotive, medical, aerospace, defense, fintech)
 - ✅ You want consistent formatting across a team
 - ✅ You're using Windsurf and want AI-assisted code review
-- ✅ You need to demonstrate compliance with coding standards (CERT, MISRA-inspired)
+- ✅ You need to demonstrate compliance with coding standards (SEI CERT, CWE)
 - ✅ You want to catch common bugs before they reach production
 
 ### Consider Alternatives When:
 
-- ❌ You're working in a language other than C/C++
+- ❌ You're working in a language other than Java/JVM
 - ❌ Your organization has existing, incompatible standards you must follow
-- ❌ You need formal MISRA certification (this is MISRA-inspired, not certified)
 
 ---
 
@@ -188,22 +198,49 @@ This framework solves these problems by providing:
 |-------------|---------------|
 | **Linux** | Full support |
 | **macOS** | Full support |
-| **Windows** | Full support (with LLVM/clang installed) |
+| **Windows** | Full support |
 | **CI/CD Pipelines** | GitHub Actions, GitLab CI, Jenkins, etc. |
-| **IDEs** | VSCode, CLion, Vim, **Windsurf** (with clangd integration) |
+| **IDEs** | VSCode, IntelliJ IDEA, Eclipse, **Windsurf** (with the Java language server) |
 | **Windsurf** | Full AI integration |
+
+> **JDK requirement:** Use **JDK 17** to run the analysis. SpotBugs **crashes on newer JDKs**
+> (e.g. JDK 26) with an `FBClassReader`/ASM error, so all Maven analysis goals must run on JDK 17.
+> Checkstyle and PMD tolerate newer JDKs, but standardizing on 17 avoids surprises.
 
 ### Project Types
 
-- Embedded systems
-- Operating systems / kernel development
+- Backend services and APIs
+- Libraries and SDKs
 - Safety-critical applications
 - Security-sensitive code
-- Any C/C++ application
+- Any Java/JVM application
 
 ---
 
 ## Quick Start
+
+### Prerequisites
+
+Install **JDK 17** and **Apache Maven**:
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get update
+sudo apt-get install -y openjdk-17-jdk maven
+```
+
+**macOS (Homebrew):**
+```bash
+brew install openjdk@17 maven
+```
+
+On these VMs JDK 17 lives at `/usr/lib/jvm/java-17-openjdk-amd64`. Because the default `java`/`mvn`
+may be a newer JDK, always run Maven with `JAVA_HOME` pinned to 17:
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+java -version   # should report 17.x
+```
 
 ### Option A: Use as GitHub Template (New Projects)
 
@@ -214,37 +251,39 @@ This framework solves these problems by providing:
 ### Option B: Add to Existing Project
 
 ```bash
-# Clone this framework
-git clone https://github.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework.git
+# Clone this framework (into a clean directory name)
+git clone https://github.com/COG-GTM/-C-Code-Standards-Compliance-Framework.git code-standards-framework
 
-# Copy configs to your project
-cp -C-Code-Standards-Compliance-Framework/.clang-format /path/to/your/project/
-cp -C-Code-Standards-Compliance-Framework/.clang-tidy /path/to/your/project/
+# Copy the analysis configs to your project
+cp code-standards-framework/checkstyle.xml        /path/to/your/project/
+cp code-standards-framework/pmd-ruleset.xml       /path/to/your/project/
+cp code-standards-framework/spotbugs-exclude.xml  /path/to/your/project/
+
+# Merge the Checkstyle/PMD/SpotBugs plugin <build> section from this repo's pom.xml
+# into your project's pom.xml (see pom.xml for the exact plugin versions).
 
 # (Optional) Copy Windsurf rules
 mkdir -p /path/to/your/project/.windsurf/rules
-cp -C-Code-Standards-Compliance-Framework/windsurf/c-safety-critical-rules.md \
+cp code-standards-framework/windsurf/java-safety-critical-rules.md \
    /path/to/your/project/.windsurf/rules/
-```
-
-### Option C: One-Line Install (curl)
-
-```bash
-# Run from your project root
-curl -sL https://raw.githubusercontent.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework/main/.clang-format -o .clang-format && \
-curl -sL https://raw.githubusercontent.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework/main/.clang-tidy -o .clang-tidy
 ```
 
 ### Verify Installation
 
 ```bash
-# Check formatting (reports violations)
-clang-format --dry-run --Werror src/*.c
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 
-# Run static analysis
-clang-tidy src/*.c -- -I./include
+# Style check (Checkstyle)
+mvn checkstyle:check
 
-# Or use the validation script
+# Static analysis (PMD + SpotBugs)
+mvn pmd:check
+mvn spotbugs:check
+
+# Run everything that is bound to the build (compile + all three analyzers + tests)
+mvn verify
+
+# Or use the validation script (wraps the Maven goals)
 ./scripts/validate.sh src/
 ```
 
@@ -256,21 +295,22 @@ clang-tidy src/*.c -- -I./include
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Your C/C++ Project                          │
+│                       Your Java Project                         │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│   ┌─────────────┐    ┌─────────────┐    ┌──────────────────┐   │
-│   │ .clang-     │    │ .clang-tidy │    │ windsurf/        │   │
-│   │ format      │    │             │    │ rules.md         │   │
-│   └──────┬──────┘    └──────┬──────┘    └────────┬─────────┘   │
+│   ┌─────────────┐   ┌────────────────┐   ┌──────────────────┐   │
+│   │ checkstyle  │   │ pmd-ruleset    │   │ windsurf/        │   │
+│   │ .xml        │   │ .xml + spotbugs│   │ rules.md         │   │
+│   │             │   │ -exclude.xml   │   │                  │   │
+│   └──────┬──────┘   └───────┬────────┘   └────────┬─────────┘   │
 │          │                  │                     │             │
 │          ▼                  ▼                     ▼             │
-│   ┌─────────────┐    ┌─────────────┐    ┌──────────────────┐   │
-│   │ clang-      │    │ clang-tidy  │    │ Windsurf AI      │   │
-│   │ format      │    │ (analysis)  │    │ (review)         │   │
-│   │ (style)     │    │             │    │                  │   │
-│   └──────┬──────┘    └──────┬──────┘    └────────┬─────────┘   │
+│   ┌─────────────┐   ┌────────────────┐   ┌──────────────────┐   │
+│   │ Checkstyle  │   │ PMD + SpotBugs │   │ Windsurf AI      │   │
+│   │ (style)     │   │ (analysis)     │   │ (review)         │   │
+│   └──────┬──────┘   └───────┬────────┘   └────────┬─────────┘   │
 │          │                  │                     │             │
+│          │       (all orchestrated by Maven / pom.xml)         │
 │          ▼                  ▼                     ▼             │
 │   ┌─────────────────────────────────────────────────────────┐  │
 │   │                  Consistent, Safe Code                   │  │
@@ -281,10 +321,10 @@ clang-tidy src/*.c -- -I./include
 
 ### Workflow
 
-1. **Developer writes code** in their IDE
-2. **Pre-commit hook** (optional) runs clang-format
+1. **Developer writes code** in their IDE (Java language server gives live diagnostics)
+2. **Pre-commit hook** (optional) runs `mvn checkstyle:check`
 3. **Developer commits** code to branch
-4. **CI pipeline** runs clang-format and clang-tidy
+4. **CI pipeline** runs Checkstyle, PMD, and SpotBugs on JDK 17
 5. **Windsurf** (if used) provides AI-assisted review
 6. **Issues classified** as Critical (block), Major (review), Minor (warn)
 7. **Developer fixes** issues based on severity
@@ -298,8 +338,8 @@ Issues are classified into three severity levels for effective triage:
 
 | Severity | Icon | Action | Blocks Merge? | Examples |
 |----------|------|--------|---------------|----------|
-| **Critical** | 🔴 | Must fix immediately | Yes | Null dereference, buffer overflow, use-after-free, unchecked return values |
-| **Major** | 🟡 | Requires review | Recommended | Narrowing conversions, missing error handling, thread safety |
+| **Critical** | 🔴 | Must fix immediately | Yes | Null dereference, injection, resource leaks, exposed internal state, unchecked return values |
+| **Major** | 🟡 | Requires review | Recommended | Narrowing conversions, confusing methods, thread safety |
 | **Minor** | 🟢 | Fix when convenient | No | Formatting, naming conventions, style preferences |
 
 ### Why Severity Matters
@@ -308,7 +348,7 @@ Issues are classified into three severity levels for effective triage:
 - **Major issues** may cause bugs in edge cases or reduce maintainability
 - **Minor issues** affect readability but not functionality
 
-See `rule-severity-mapping.yaml` for the complete mapping of clang-tidy checks to severity levels.
+See `rule-severity-mapping.yaml` for the complete mapping of Checkstyle/PMD/SpotBugs checks to severity levels.
 
 ---
 
@@ -318,38 +358,38 @@ See `rule-severity-mapping.yaml` for the complete mapping of clang-tidy checks t
 
 | Rule ID | Name | Description |
 |---------|------|-------------|
-| Rule 20 | Check Return Values | All return values from fallible functions must be checked |
-| Rule 21 | Buffer Overflow | Use bounded string functions, validate array indices |
-| Rule 22 | Null Dereference | Validate all pointers before use |
-| Rule 23 | Resource Leaks | Free all allocated memory, close all handles |
-| Rule 24 | Use-After-Free | Never access memory after freeing |
-| Rule 25 | Uninitialized | Initialize all variables before use |
-| Rule 26 | Security | Avoid insecure APIs (rand, strcpy, etc.) |
+| Rule 20 | Check Return Values | All return values from status/value-producing methods must be checked |
+| Rule 21 | Injection | Use parameterized APIs; never concatenate untrusted input into SQL/commands |
+| Rule 22 | Null Dereference | Validate references before dereferencing |
+| Rule 23 | Resource Leaks | Close all `AutoCloseable` resources (try-with-resources) |
+| Rule 24 | Leaked Internal References | Defensively copy mutable internal state; don't expose it |
+| Rule 25 | Dead Stores / Unwritten Fields | No dead local stores or fields that are read but never written |
+| Rule 26 | Security | Avoid insecure APIs (`java.util.Random`, MD5, DES, hard-coded keys) |
 
 ### Major Rules (Requires Review)
 
 | Rule ID | Name | Description |
 |---------|------|-------------|
-| Rule 30 | Narrowing Conversions | Check overflow before casting to smaller types |
-| Rule 31 | Parameter Names | Declaration and definition names must match |
-| Rule 32 | Redundant Code | Remove duplicate or unreachable code |
-| Rule 33 | Infinite Loops | Avoid loops that cannot terminate |
-| Rule 34 | Thread Safety | Use thread-safe functions in multi-threaded code |
-| Rule 35 | Performance | Avoid unnecessary copies and allocations |
+| Rule 30 | Narrowing Conversions | Promote to the wide type before arithmetic; check before casting down |
+| Rule 31 | Confusing Methods | Group overloads; avoid misleading/confusing method names |
+| Rule 32 | Redundant Code | Remove duplicate branches and repeated conditions |
+| Rule 33 | Infinite Loops | Ensure every loop/recursion can terminate |
+| Rule 34 | Thread Safety | Synchronize shared state consistently; avoid broken double-checked locking |
+| Rule 35 | Performance | Avoid needless allocation; use `StringBuilder`, hoist objects out of loops |
 
 ### Minor Rules (Style)
 
 | Rule ID | Name | Description |
 |---------|------|-------------|
-| Rule 40 | Brace Style | Consistent Allman brace placement |
-| Rule 41 | Naming | Consistent naming conventions |
+| Rule 40 | Brace Style | Consistent end-of-line (K&R) brace placement |
+| Rule 41 | Naming | Java naming conventions (camelCase / UPPER_SNAKE / UpperCamelCase) |
 | Rule 42 | Braces | Always use braces around blocks |
 | Rule 43 | Boolean | Simplify boolean expressions |
-| Rule 44 | Else After Return | Remove unnecessary else after return |
-| Rule 45 | Nullptr | Use nullptr instead of NULL (C++) |
-| Rule 46 | Unused Parameters | Remove or annotate unused parameters |
+| Rule 44 | Else After Return | Remove unnecessary else after return (advisory) |
+| Rule 45 | Avoid Returning Null | Return empty collections/arrays instead of `null` |
+| Rule 46 | Unused Members | Remove unused parameters, fields, and locals |
 
-See `docs/rule-reference.md` for detailed examples of each rule.
+See [docs/rule-reference.md](docs/rule-reference.md) for detailed examples of each rule.
 
 ---
 
@@ -358,31 +398,33 @@ See `docs/rule-reference.md` for detailed examples of each rule.
 ```
 .
 ├── README.md                      # This documentation
-├── .clang-format                  # Code formatting configuration
-├── .clang-tidy                    # Static analysis configuration
-├── .clangd                        # clangd language server configuration
+├── pom.xml                        # Maven build + Checkstyle/PMD/SpotBugs plugins
+├── checkstyle.xml                 # Checkstyle configuration (style/naming/braces)
+├── pmd-ruleset.xml                # PMD ruleset (bug/design/dead-code)
+├── spotbugs-exclude.xml           # SpotBugs exclusion filter
 ├── rule-severity-mapping.yaml     # Severity classification
 ├── vscode-settings.json.template  # VSCode/Windsurf settings template
 │
 ├── windsurf/
-│   └── c-safety-critical-rules.md # Windsurf AI rules
+│   └── java-safety-critical-rules.md # Windsurf AI rules
 │
 ├── examples/
-│   ├── compliant.c                # Code that passes all checks
-│   └── violations.c               # Code with intentional violations (for testing)
+│   ├── Compliant.java             # Code that passes all checks
+│   └── Violations.java            # Code with intentional violations (for testing)
 │
 ├── scripts/
-│   ├── validate.sh                # Validation wrapper script
-│   └── generate-compile-commands.sh # Generate compile_commands.json for clangd
+│   └── validate.sh                # Validation wrapper script (runs the Maven goals)
 │
-├── tests/
-│   ├── __init__.py
-│   └── test_compliance.py         # Automated tests for configs
+├── src/
+│   └── test/java/com/example/standards/
+│       └── ComplianceTest.java    # JUnit tests for the configs
 │
 └── docs/
     ├── rule-reference.md          # Detailed rule documentation
-    └── clangd-setup.md            # clangd setup guide
+    └── java-ide-setup.md          # Java language server / IDE setup guide
 ```
+
+> Maven coordinates: groupId `com.example`, artifactId `code-standards-compliance`, version `1.0.0`.
 
 ---
 
@@ -402,23 +444,30 @@ on:
     branches: [main, develop]
 
 jobs:
-  lint:
+  analysis:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install clang tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format clang-tidy
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'        # SpotBugs requires JDK 17 (crashes on newer JDKs)
+          cache: maven
 
-      - name: Check formatting
-        run: |
-          find src -name "*.c" -o -name "*.h" | xargs clang-format --dry-run --Werror
+      - name: Checkstyle
+        run: mvn -B checkstyle:check
 
-      - name: Run clang-tidy
-        run: |
-          find src -name "*.c" | xargs clang-tidy -- -I./include
+      - name: PMD
+        run: mvn -B pmd:check
+
+      - name: SpotBugs
+        run: mvn -B spotbugs:check
+
+      # Or run everything bound to the build in one shot:
+      # - name: Verify
+      #   run: mvn -B verify
 ```
 
 ### GitLab CI
@@ -427,12 +476,11 @@ Create `.gitlab-ci.yml`:
 
 ```yaml
 code-standards:
-  image: ubuntu:22.04
-  before_script:
-    - apt-get update && apt-get install -y clang-format clang-tidy
+  image: maven:3.9-eclipse-temurin-17   # pins JDK 17 for SpotBugs
   script:
-    - find src -name "*.c" -o -name "*.h" | xargs clang-format --dry-run --Werror
-    - find src -name "*.c" | xargs clang-tidy -- -I./include
+    - mvn -B checkstyle:check
+    - mvn -B pmd:check
+    - mvn -B spotbugs:check
 ```
 
 ### Pre-commit Hook
@@ -441,97 +489,41 @@ Create `.git/hooks/pre-commit`:
 
 ```bash
 #!/bin/bash
-# Auto-format staged C files before commit
+# Run Checkstyle on staged Java files before commit
 
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(c|cpp|h|hpp)$')
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.java$')
 
 if [ -n "$STAGED_FILES" ]; then
-    echo "Formatting staged C/C++ files..."
-    echo "$STAGED_FILES" | xargs clang-format -i
-    echo "$STAGED_FILES" | xargs git add
+    echo "Running Checkstyle on staged Java files..."
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 mvn -q checkstyle:check || exit 1
 fi
 ```
 
 ---
 
-## clangd IDE Integration
+## Java IDE Integration
 
-This framework includes full **clangd** language server support for intelligent C/C++ development in Windsurf, VSCode, and other editors.
+This framework works with the **Java language server** (Eclipse JDT.LS, used by VS Code's
+"Extension Pack for Java" / Red Hat "Language Support for Java") for intelligent Java development
+in Windsurf, VSCode, and other editors.
 
 ### What You Need (3 Things)
 
-To get full IDE intelligence for C/C++, you need **three components**:
-
 | Component | What It Is | Where to Get It |
 |-----------|-----------|-----------------|
-| **1. clangd (program)** | The "brain" that analyzes your code | Install on your computer (see below) |
-| **2. clangd extension** | Connects your editor to clangd | Install from Windsurf/VSCode marketplace |
-| **3. This framework** | Pre-configured settings | You're looking at it! |
+| **1. JDK 17** | Compiles and runs the analysis | Install on your computer (see Quick Start) |
+| **2. Extension Pack for Java** | Connects your editor to the Java language server | Install from Windsurf/VSCode marketplace |
+| **3. This framework** | Pre-configured `pom.xml` + rule configs | You're looking at it! |
 
-### Step 1: Install clangd on Your Computer
+### How It Works
 
-**macOS (Homebrew):**
-```bash
-brew install llvm
+The Java language server reads your **`pom.xml`** to understand the project's classpath, source
+roots, and dependencies — exactly the role `compile_commands.json` played for clangd in C/C++.
+Once it has imported the Maven project, you get autocomplete, go-to-definition, find-references,
+and live diagnostics. The Checkstyle, PMD, and SpotBugs VS Code extensions surface the *same*
+`checkstyle.xml` / `pmd-ruleset.xml` / `spotbugs-exclude.xml` findings inline as you type.
 
-# Add to your shell profile (~/.zshrc or ~/.bash_profile)
-echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-
-# Verify it works
-clangd --version
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt-get update
-sudo apt-get install clangd-15  # or just 'clangd'
-
-# Verify
-clangd --version
-```
-
-**Windows:**
-1. Download LLVM from https://releases.llvm.org/
-2. Run the installer
-3. Check "Add LLVM to PATH" during installation
-4. Open new terminal and run `clangd --version`
-
-### Step 2: Install the clangd Extension in Windsurf
-
-1. Open Windsurf
-2. Go to Extensions (Cmd+Shift+X on Mac, Ctrl+Shift+X on Windows/Linux)
-3. Search for **"clangd"**
-4. Install the one by **llvm-vs-code-extensions** (has 4.6M downloads)
-5. **Important:** If prompted, disable Microsoft's C/C++ IntelliSense (it conflicts with clangd)
-
-### Step 3: Use This Framework in Your Project
-
-**Option A: Clone and copy configs to your existing project**
-```bash
-# Clone this framework
-git clone https://github.com/COG-GTM/-C-Code-Standards-Compliance-Framework.git
-
-# Copy the config files to your project
-cp -C-Code-Standards-Compliance-Framework/.clang-format /path/to/your/project/
-cp -C-Code-Standards-Compliance-Framework/.clang-tidy /path/to/your/project/
-cp -C-Code-Standards-Compliance-Framework/.clangd /path/to/your/project/
-
-# Copy the scripts
-cp -r -C-Code-Standards-Compliance-Framework/scripts /path/to/your/project/
-
-# Generate compile_commands.json (required for clangd to work fully)
-cd /path/to/your/project
-./scripts/generate-compile-commands.sh
-```
-
-**Option B: Use this repo as a template (new projects)**
-1. Click "Use this template" on GitHub
-2. Clone your new repo
-3. Run `./scripts/generate-compile-commands.sh`
-4. Start coding!
-
-### Step 4: Configure Your Editor Settings
+### Quick Setup
 
 ```bash
 # In your project directory
@@ -540,28 +532,11 @@ cp vscode-settings.json.template .vscode/settings.json
 ```
 
 This configures Windsurf/VSCode to:
-- Use clangd instead of Microsoft's C++ IntelliSense
-- Format on save using our `.clang-format`
-- Show clang-tidy warnings in real-time
+- Import the Maven project via the Java language server
+- Format on save using Java conventions
+- Show Checkstyle / PMD / SpotBugs diagnostics in real-time
 
-### Verify Everything Works
-
-After setup, you should see:
-- ✅ **Autocomplete** when you type (e.g., type `mal` and see `malloc` suggested)
-- ✅ **Go to Definition** works (Cmd+Click on a function name)
-- ✅ **Real-time errors** appear as red squiggles
-- ✅ **Hover info** shows function signatures and docs
-
-If something isn't working, see **[docs/clangd-setup.md](docs/clangd-setup.md)** for troubleshooting.
-
-### Files Included for clangd
-
-| File | Purpose |
-|------|---------|
-| `.clangd` | Tells clangd which checks to run, include paths, etc. |
-| `scripts/generate-compile-commands.sh` | Creates `compile_commands.json` (clangd needs this to understand your project) |
-| `vscode-settings.json.template` | Editor settings to enable clangd and disable conflicting extensions |
-| `docs/clangd-setup.md` | Detailed setup guide with troubleshooting |
+See **[docs/java-ide-setup.md](docs/java-ide-setup.md)** for the full setup guide and troubleshooting.
 
 ---
 
@@ -580,7 +555,7 @@ When using Windsurf with these rules, the AI assistant (Cascade) will:
 1. Copy rules to your project:
    ```bash
    mkdir -p .windsurf/rules
-   cp windsurf/c-safety-critical-rules.md .windsurf/rules/
+   cp windsurf/java-safety-critical-rules.md .windsurf/rules/
    ```
 
 2. Open your project in Windsurf
@@ -589,19 +564,19 @@ When using Windsurf with these rules, the AI assistant (Cascade) will:
 ### Example Interaction
 
 ```
-User: Review this function
+User: Review this method
 
 Cascade: I found 2 issues:
 
-🔴 **Critical - Rule 20 violation**: Return value of `fopen` is not checked.
-   Line 5: `FILE *f = fopen("data.txt", "r");`
-   
-   Fix: Add null check before using the file handle.
+🔴 **Critical - Rule 23 violation**: InputStream is not closed on all paths.
+   Line 5: `InputStream in = Files.newInputStream(path);`
 
-🟡 **Major - Rule 30 violation**: Narrowing conversion from `size_t` to `int`.
-   Line 12: `int count = bytes_read;`
-   
-   Fix: Check for overflow or use appropriate type.
+   Fix: Wrap it in a try-with-resources block.
+
+🟡 **Major - Rule 30 violation**: Multiplication overflows in int before widening to long.
+   Line 12: `long nanos = 1_000_000 * seconds;`
+
+   Fix: Use a long literal: `1_000_000L * seconds`.
 ```
 
 ---
@@ -614,40 +589,25 @@ Edit `rule-severity-mapping.yaml` to change which checks are Critical, Major, or
 
 ### Adding/Removing Checks
 
-Edit `.clang-tidy`:
-
-```yaml
-Checks: >
-  bugprone-*,
-  cert-*,
-  -bugprone-easily-swappable-parameters,  # Disable this check
-  misc-my-custom-check,                    # Add this check
-```
-
-### Project-Specific Options
-
-Add to `.clang-tidy`:
-
-```yaml
-CheckOptions:
-  - key: readability-identifier-naming.FunctionCase
-    value: camelCase  # Or lower_case, CamelCase, etc.
-```
+- **Checkstyle:** add/remove `<module>` entries in `checkstyle.xml`.
+- **PMD:** add/remove `<rule>` references in `pmd-ruleset.xml` (PMD 6 ruleset syntax).
+- **SpotBugs:** add `<Match>` entries in `spotbugs-exclude.xml` to exclude patterns.
 
 ### Suppressing Warnings
 
-```c
-// Single line
-malloc(size);  // NOLINT(clang-analyzer-unix.Malloc)
+```java
+// Checkstyle (with SuppressWarningsFilter enabled)
+@SuppressWarnings("checkstyle:MethodName")
+void Legacy_Name() { }
 
-// Block
-// NOLINTBEGIN(bugprone-unused-return-value)
-legacy_function_call();
-// NOLINTEND(bugprone-unused-return-value)
+// PMD
+@SuppressWarnings("PMD.UnusedFormalParameter")  // or: someCall(); // NOPMD - reason
 
-// Whole file (add at top)
-// NOLINTFILE(check-name)
+// SpotBugs (from com.github.spotbugs:spotbugs-annotations)
+@SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "array is caller-owned")
 ```
+
+**Always add a comment explaining why a suppression is necessary.**
 
 ---
 
@@ -657,33 +617,35 @@ legacy_function_call();
 
 | Tool | Minimum Version | Purpose |
 |------|-----------------|---------|
-| clang-format | 14.0+ | Code formatting |
-| clang-tidy | 14.0+ | Static analysis |
+| JDK | **17** (required for SpotBugs) | Compile + run analysis |
+| Apache Maven | 3.9+ | Build + plugin orchestration |
 
-### Optional Tools
+### Pinned Tool Versions (configured in `pom.xml`)
 
-| Tool | Purpose |
-|------|---------|
-| Python 3.8+ | Running tests |
-| pytest | Test framework |
-| PyYAML | Parsing severity mapping |
+| Plugin / Tool | Version |
+|---------------|---------|
+| maven-checkstyle-plugin | 3.3.1 (Checkstyle 10.12.7) |
+| maven-pmd-plugin | 3.21.2 (PMD 6.55.0) |
+| spotbugs-maven-plugin | 4.8.3.1 (SpotBugs 4.8.3) |
+| maven-surefire-plugin | 3.2.5 |
+| JUnit Jupiter | 5.10.2 |
 
 ### Installation
 
 **Ubuntu/Debian:**
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang-format clang-tidy
+sudo apt-get install -y openjdk-17-jdk maven
 ```
 
 **macOS (Homebrew):**
 ```bash
-brew install llvm
-export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+brew install openjdk@17 maven
 ```
 
 **Windows:**
-Download LLVM from https://releases.llvm.org/ and add to PATH.
+Install [Eclipse Temurin 17](https://adoptium.net/temurin/releases/?version=17) and
+[Apache Maven](https://maven.apache.org/download.cgi), then add both to your PATH.
 
 ---
 
@@ -693,38 +655,38 @@ Download LLVM from https://releases.llvm.org/ and add to PATH.
 
 **A:** No. This automates the mechanical parts of code review (formatting, common bugs) so human reviewers can focus on architecture, logic, and domain-specific concerns.
 
-### Q: Is this MISRA certified?
+### Q: Why must I use JDK 17?
 
-**A:** No. This is MISRA-inspired but not formally certified. For formal MISRA compliance, use a certified tool like Polyspace or PC-lint.
+**A:** SpotBugs 4.8.3 crashes on newer JDKs (e.g. JDK 26) with an `FBClassReader`/ASM bytecode error.
+Checkstyle and PMD work on newer JDKs, but to keep one consistent toolchain, run *all* analysis on
+JDK 17: `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 mvn ...`. In GitHub Actions, use
+`actions/setup-java@v4` with `java-version: '17'` (distribution `temurin`). Note that your *project*
+can still target a newer runtime; this constraint only applies to running the analysis tools.
 
-### Q: Can I use this with CMake?
+### Q: Is this MISRA / formally certified?
 
-**A:** Yes. Add to your `CMakeLists.txt`:
-```cmake
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-```
-Then run clang-tidy with `--config-file=.clang-tidy -p build/`.
+**A:** No. This is inspired by the SEI CERT Oracle Coding Standard for Java but is not a formally
+certified tool. For formal certification, use an accredited commercial analyzer.
 
-### Q: How do I set up clangd for IDE integration?
+### Q: How do I set up IDE integration?
 
-**A:** This framework includes full clangd support:
-1. Generate `compile_commands.json`: `./scripts/generate-compile-commands.sh`
-2. Copy VSCode settings: `mkdir -p .vscode && cp vscode-settings.json.template .vscode/settings.json`
-3. See `docs/clangd-setup.md` for detailed instructions
+**A:** Install the "Extension Pack for Java", open the project so the language server imports
+`pom.xml`, and copy `vscode-settings.json.template` to `.vscode/settings.json`. See
+`docs/java-ide-setup.md` for details.
 
 ### Q: How do I handle legacy code with many violations?
 
 **A:** Options:
 1. Fix violations incrementally (start with Critical only)
-2. Use `// NOLINT` to suppress known violations in legacy files
-3. Use `.clang-tidy` `HeaderFilterRegex` to only check new code
+2. Use `@SuppressWarnings`/`@SuppressFBWarnings`/`// NOPMD` to suppress known violations in legacy files
+3. Scope the plugins to only new modules/packages until the backlog is cleared
 
 ### Q: Can I contribute new rules?
 
 **A:** Yes! Open a pull request with:
 1. Rule description
 2. Example compliant and non-compliant code
-3. Mapping to clang-tidy check (if applicable)
+3. Mapping to a Checkstyle/PMD/SpotBugs check (if applicable)
 
 ---
 
@@ -736,9 +698,9 @@ MIT License - Free for use in any project, commercial or open source.
 
 ## Support
 
-- **Issues:** https://github.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework/issues
-- **Discussions:** https://github.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework/discussions
+- **Issues:** https://github.com/COG-GTM/-C-Code-Standards-Compliance-Framework/issues
+- **Discussions:** https://github.com/COG-GTM/-C-Code-Standards-Compliance-Framework/discussions
 
 ---
 
-**Made with ❤️ for safer C/C++ code**
+**Made with ❤️ for safer Java code**
