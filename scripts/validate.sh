@@ -355,6 +355,10 @@ record_finding() {
             [ "${#UNCLASSIFIED_SAMPLES[@]}" -lt 10 ] && UNCLASSIFIED_SAMPLES+=("$tool: $name")
             ;;
     esac
+    # Always succeed: the sample-cap test above returns non-zero once a tier's
+    # sample array is full, which under `set -e` would otherwise abort the
+    # classification loop early (and exit 1, masquerading as a Critical gate).
+    return 0
 }
 
 while IFS= read -r name; do
