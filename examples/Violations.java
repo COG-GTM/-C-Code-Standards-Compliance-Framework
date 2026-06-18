@@ -452,8 +452,8 @@ public class Violations {
      * <p>Maps to PMD UnusedFormalParameter (checkAll). The {@code unusedField}
      * above maps to UnusedPrivateField.</p>
      */
-    int rule46UnusedParameter(int used, int unused) {
-        // VIOLATION - Minor (Rule 46): 'unused' is never referenced
+    int rule46UnusedParameter(int used, int multiplier) {
+        // VIOLATION - Minor (Rule 46): 'multiplier' is never referenced
         return used;
     }
 
