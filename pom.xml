@@ -37,6 +37,10 @@
     <maven-pmd-plugin.version>3.21.2</maven-pmd-plugin.version>
     <spotbugs-maven-plugin.version>4.8.3.1</spotbugs-maven-plugin.version>
     <spotbugs-annotations.version>4.8.3</spotbugs-annotations.version>
+    <!-- SpotBugs security detector pack (SQL/command/format-string injection,
+         predictable random, weak crypto): provides the Rule 21 / Rule 26
+         FindSecBugs patterns that core SpotBugs does not ship. -->
+    <findsecbugs-plugin.version>1.13.0</findsecbugs-plugin.version>
     <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
     <junit.version>5.10.2</junit.version>
   </properties>
@@ -180,6 +184,15 @@
           <xmlOutput>true</xmlOutput>
           <spotbugsXmlOutputDirectory>${project.build.directory}</spotbugsXmlOutputDirectory>
           <failOnError>false</failOnError>
+          <!-- Load Find Security Bugs so the injection / insecure-API / weak-crypto
+               patterns referenced by Rules 21 and 26 actually resolve. -->
+          <plugins>
+            <plugin>
+              <groupId>com.h3xstream.findsecbugs</groupId>
+              <artifactId>findsecbugs-plugin</artifactId>
+              <version>${findsecbugs-plugin.version}</version>
+            </plugin>
+          </plugins>
         </configuration>
         <executions>
           <execution>
