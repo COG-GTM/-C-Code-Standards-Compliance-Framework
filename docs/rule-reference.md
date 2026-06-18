@@ -9,114 +9,131 @@ Rules are organized by severity:
 - **Major (Rule 30-39):** Quality issues that should be reviewed
 - **Minor (Rule 40-49):** Style issues that improve maintainability
 
+Each rule maps to one or more checks from the Java static-analysis toolchain:
+
+| Tool | Role | Config File |
+|------|------|-------------|
+| **Checkstyle** | Formatting, naming, braces | `checkstyle.xml` |
+| **PMD** | Bug patterns, dead code, design | `pmd-ruleset.xml` |
+| **SpotBugs** | Bug, security & bytecode analysis | `spotbugs-exclude.xml` |
+
+> **Toolchain note:** All analysis runs through Apache Maven (`pom.xml` is the project model).
+> SpotBugs must run on **JDK 17** — it crashes on newer JDKs (e.g. JDK 26) with an
+> `FBClassReader`/ASM error. Run Maven with `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 mvn ...`.
+
 ---
 
 ## Critical Rules (Block Merge)
 
 ### Rule 20: Check All Return Values
 
-**Severity:** 🔴 Critical  
-**clang-tidy checks:** `bugprone-unused-return-value`, `cert-err33-c`
+**Severity:** 🔴 Critical
+**Checks:** SpotBugs `RV_RETURN_VALUE_IGNORED_BAD_PRACTICE`, `RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT`; PMD `CheckResultSet`
 
 #### Description
-All return values from functions that can fail must be checked. Ignoring return values hides errors and leads to undefined behavior.
+All return values from methods that report status or produce a new value must be checked.
+Ignoring a return value hides failures and produces silent, hard-to-trace bugs.
 
-#### Affected Functions
-- Memory: `malloc`, `calloc`, `realloc`, `aligned_alloc`
-- File I/O: `fopen`, `fclose`, `fread`, `fwrite`, `fseek`, `ftell`
-- POSIX I/O: `open`, `close`, `read`, `write`, `lseek`
-- Network: `socket`, `bind`, `listen`, `accept`, `connect`, `send`, `recv`
-- Threading: `pthread_create`, `pthread_join`, `pthread_mutex_lock`
+#### Commonly Ignored Return Values
+- File status: `File.delete()`, `File.mkdir()`, `File.renameTo()`
+- I/O: `InputStream.read(byte[])`, `InputStream.skip(long)`
+- Immutable results: `String.trim()`, `String.replace()`, `BigDecimal.add()`
+- Concurrency: `BlockingQueue.offer()`, `Condition.await(long, TimeUnit)`
 
 #### Examples
 
-```c
+```java
 // ❌ BAD - Return values ignored
-FILE *f = fopen("data.txt", "r");
-fread(buffer, 1, 100, f);
-fclose(f);
+File tmp = new File("data.tmp");
+tmp.delete();                 // Did it actually delete? We never know.
+in.read(buffer);              // Bytes actually read is ignored.
+input.trim();                 // trim() returns a NEW String; this is a no-op.
 
 // ✅ GOOD - All return values checked
-FILE *f = fopen("data.txt", "r");
-if (f == NULL) {
-    perror("fopen");
-    return -1;
+File tmp = new File("data.tmp");
+if (!tmp.delete()) {
+    throw new IOException("Failed to delete " + tmp);
 }
 
-size_t n = fread(buffer, 1, 100, f);
-if (n != 100 && ferror(f)) {
-    perror("fread");
-    fclose(f);
-    return -1;
+int read = in.read(buffer);
+if (read != buffer.length) {
+    throw new IOException("Short read: expected " + buffer.length + ", got " + read);
 }
 
-if (fclose(f) != 0) {
-    perror("fclose");
-}
+String cleaned = input.trim();   // Use the returned value.
 ```
 
 ---
 
-### Rule 21: Prevent Buffer Overflows
+### Rule 21: Prevent Injection
 
-**Severity:** 🔴 Critical  
-**clang-tidy checks:** `bugprone-not-null-terminated-result`, `clang-analyzer-security.insecureAPI.strcpy`
+**Severity:** 🔴 Critical
+**Checks:** SpotBugs `SQL_INJECTION_JDBC`, `SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE`, `COMMAND_INJECTION`, `FORMAT_STRING_MANIPULATION`
+
+> The C framework used Rule 21 for **buffer overflows**. Java has no raw buffers or `strcpy`,
+> so the equivalent class of vulnerability is **injection** — building SQL, OS commands, or
+> format strings from untrusted input.
 
 #### Description
-Never use unbounded string functions. Always use functions that accept a size parameter.
-
-#### Banned vs Safe Functions
-
-| Banned | Safe Alternative |
-|--------|------------------|
-| `strcpy` | `strncpy`, `strlcpy` |
-| `strcat` | `strncat`, `strlcat` |
-| `sprintf` | `snprintf` |
-| `gets` | `fgets` |
-| `scanf("%s")` | `scanf("%Ns")` where N is buffer size - 1 |
+Never build SQL, shell commands, or format strings by concatenating untrusted input.
+Use parameterized APIs so the data can never be interpreted as code.
 
 #### Examples
 
-```c
-// ❌ BAD - No bounds checking
-char dest[10];
-strcpy(dest, src);  // Buffer overflow if src > 9 chars
+```java
+// ❌ BAD - SQL injection via string concatenation
+String sql = "SELECT * FROM users WHERE name = '" + userName + "'";
+Statement stmt = connection.createStatement();
+ResultSet rs = stmt.executeQuery(sql);
 
-// ✅ GOOD - Bounded copy
-char dest[10];
-strncpy(dest, src, sizeof(dest) - 1);
-dest[sizeof(dest) - 1] = '\0';
-
-// ✅ BETTER - snprintf handles size automatically
-char dest[10];
-snprintf(dest, sizeof(dest), "%s", src);
+// ✅ GOOD - Parameterized query
+String sql = "SELECT * FROM users WHERE name = ?";
+PreparedStatement ps = connection.prepareStatement(sql);
+ps.setString(1, userName);
+ResultSet rs = ps.executeQuery();
 ```
+
+```java
+// ❌ BAD - OS command injection
+Runtime.getRuntime().exec("sh -c ping " + host);
+
+// ✅ GOOD - No shell, arguments passed as an array
+new ProcessBuilder("ping", "-c", "1", host).start();
+```
+
+**Why:** Injection is the most exploited vulnerability class in web software (CWE-89, CWE-78).
 
 ---
 
-### Rule 22: Prevent Null Pointer Dereference
+### Rule 22: Prevent Null Dereference
 
-**Severity:** 🔴 Critical  
-**clang-tidy checks:** `clang-analyzer-core.NullDereference`
+**Severity:** 🔴 Critical
+**Checks:** SpotBugs `NP_NULL_ON_SOME_PATH`, `NP_NULL_PARAM_DEREF`, `NP_ALWAYS_NULL`; PMD `BrokenNullCheck`
 
 #### Description
-Always validate pointers before dereferencing. Null dereference causes crashes (SIGSEGV).
+Always validate references before dereferencing them. A null dereference throws
+`NullPointerException` and aborts the operation.
 
 #### Examples
 
-```c
+```java
 // ❌ BAD - No null check
-void process(Data *data) {
-    printf("%d\n", data->value);  // Crash if data is NULL
+void process(Order order) {
+    System.out.println(order.getTotal());  // NPE if order is null
 }
 
 // ✅ GOOD - Validate before use
-void process(Data *data) {
-    if (data == NULL) {
-        fprintf(stderr, "Error: NULL data\n");
-        return;
+void process(Order order) {
+    if (order == null) {
+        throw new IllegalArgumentException("order must not be null");
     }
-    printf("%d\n", data->value);
+    System.out.println(order.getTotal());
+}
+
+// ✅ BETTER - Make intent explicit with Objects.requireNonNull / Optional
+void process(Order order) {
+    Objects.requireNonNull(order, "order");
+    System.out.println(order.getTotal());
 }
 ```
 
@@ -124,118 +141,156 @@ void process(Data *data) {
 
 ### Rule 23: Prevent Resource Leaks
 
-**Severity:** 🔴 Critical  
-**clang-tidy checks:** `clang-analyzer-unix.Malloc`
+**Severity:** 🔴 Critical
+**Checks:** PMD `CloseResource`; SpotBugs `OBL_UNSATISFIED_OBLIGATION`, `OS_OPEN_STREAM`
 
 #### Description
-Every allocation must have a corresponding deallocation on all code paths, including error paths.
+Every `Closeable`/`AutoCloseable` (streams, readers, JDBC objects, sockets) must be closed
+on **all** code paths, including exceptions. Use try-with-resources.
 
 #### Examples
 
-```c
-// ❌ BAD - Leak on error path
-void process(void) {
-    char *buf = malloc(100);
-    FILE *f = fopen("file.txt", "r");
-    
-    if (f == NULL) {
-        return;  // LEAK: buf not freed
+```java
+// ❌ BAD - Leak on exception path
+void readFile(Path path) throws IOException {
+    InputStream in = Files.newInputStream(path);
+    parse(in);          // If parse() throws, the stream is never closed.
+    in.close();
+}
+
+// ✅ GOOD - try-with-resources guarantees close()
+void readFile(Path path) throws IOException {
+    try (InputStream in = Files.newInputStream(path)) {
+        parse(in);      // Stream is closed automatically, even on exception.
     }
-    
-    free(buf);
-    fclose(f);
+}
+```
+
+> **C → Java:** The C version used a `goto cleanup` block with `free()`/`fclose()`.
+> Java's `try-with-resources` is the idiomatic equivalent and never forgets a path.
+
+---
+
+### Rule 24: Do Not Leak Internal References
+
+**Severity:** 🔴 Critical
+**Checks:** SpotBugs `EI_EXPOSE_REP`, `EI_EXPOSE_REP2`; PMD `MethodReturnsInternalArray`, `ArrayIsStoredDirectly`
+
+> The C framework used Rule 24 for **use-after-free**. Java is garbage-collected, so the
+> analogous correctness hazard is **exposing mutable internal state** — handing out a
+> reference to an internal array/collection so callers can mutate the object behind its back.
+
+#### Description
+Do not return references to (or store references directly from) mutable internal state.
+Return defensive copies (or immutable views) so callers cannot corrupt the object's invariants.
+
+#### Examples
+
+```java
+// ❌ BAD - Exposes the internal array; callers can mutate it
+public class Schedule {
+    private final int[] slots;
+    public Schedule(int[] slots) {
+        this.slots = slots;             // Stores caller's array directly
+    }
+    public int[] getSlots() {
+        return slots;                   // Hands out the internal array
+    }
 }
 
-// ✅ GOOD - Cleanup pattern
-void process(void) {
-    char *buf = NULL;
-    FILE *f = NULL;
-    
-    buf = malloc(100);
-    if (buf == NULL) goto cleanup;
-    
-    f = fopen("file.txt", "r");
-    if (f == NULL) goto cleanup;
-    
-    // ... work ...
-    
-cleanup:
-    free(buf);
-    if (f) fclose(f);
+// ✅ GOOD - Defensive copies on the way in and out
+public class Schedule {
+    private final int[] slots;
+    public Schedule(int[] slots) {
+        this.slots = slots.clone();     // Copy in
+    }
+    public int[] getSlots() {
+        return slots.clone();           // Copy out
+    }
 }
 ```
 
 ---
 
-### Rule 24: Prevent Use-After-Free
+### Rule 25: No Dead Stores or Unwritten Fields
 
-**Severity:** 🔴 Critical  
-**clang-tidy checks:** `bugprone-use-after-move`, `bugprone-double-free`
+**Severity:** 🔴 Critical
+**Checks:** SpotBugs `DLS_DEAD_LOCAL_STORE`, `UWF_UNWRITTEN_FIELD`, `NP_UNWRITTEN_FIELD`; PMD `UnusedAssignment`
+
+> The C framework used Rule 25 for **uninitialized memory**. The JVM zero-initializes fields,
+> so the corresponding bug is a **dead store** (a value computed then immediately overwritten or
+> never read) or an **unwritten field** (read but never assigned, so always its default).
 
 #### Description
-Never access memory after it has been freed. Set pointers to NULL after free.
+Every value you assign should be read; every field you read should be written somewhere.
+A dead store or an always-default field almost always signals a logic mistake.
 
 #### Examples
 
-```c
-// ❌ BAD - Use after free
-char *data = malloc(100);
-free(data);
-printf("%s\n", data);  // UNDEFINED BEHAVIOR
-
-// ✅ GOOD - NULL after free
-char *data = malloc(100);
-// ... use data ...
-free(data);
-data = NULL;  // Prevents accidental use
-```
-
----
-
-### Rule 25: Initialize All Variables
-
-**Severity:** 🔴 Critical  
-**clang-tidy checks:** `clang-analyzer-core.uninitialized.*`
-
-#### Description
-All variables must be initialized before use. Uninitialized memory contains garbage.
-
-#### Examples
-
-```c
-// ❌ BAD - Uninitialized variable
-int result;
-if (condition) {
-    result = 42;
-}
-return result;  // Garbage if condition is false
-
-// ✅ GOOD - Initialize with default
-int result = 0;
-if (condition) {
-    result = 42;
-}
+```java
+// ❌ BAD - Dead store: the first assignment is never used
+int result = computeExpensive();   // Overwritten before it is ever read
+result = fallback();
 return result;
+
+// ❌ BAD - Unwritten field: 'limit' is read but never assigned (always 0)
+public class RateLimiter {
+    private int limit;                  // Never set anywhere
+    boolean allow(int count) {
+        return count < limit;           // Always false
+    }
+}
+
+// ✅ GOOD - Only meaningful assignments; field is written
+public class RateLimiter {
+    private final int limit;
+    public RateLimiter(int limit) {
+        this.limit = limit;
+    }
+    boolean allow(int count) {
+        return count < limit;
+    }
+}
 ```
 
 ---
 
 ### Rule 26: Avoid Insecure APIs
 
-**Severity:** 🔴 Critical  
-**clang-tidy checks:** `clang-analyzer-security.insecureAPI.rand`, `cert-msc30-c`
+**Severity:** 🔴 Critical
+**Checks:** SpotBugs `PREDICTABLE_RANDOM`, `WEAK_MESSAGE_DIGEST_MD5`, `DES_USAGE`; PMD `InsecureCryptoIv`, `HardCodedCryptoKey`
 
 #### Description
-Do not use insecure or deprecated functions, especially for security-sensitive operations.
+Do not use weak or predictable cryptographic primitives for security-sensitive operations.
 
 #### Insecure vs Secure APIs
 
 | Insecure | Secure | Notes |
 |----------|--------|-------|
-| `rand()` | `getrandom()`, `arc4random()` | Predictable PRNG |
-| `srand()` | N/A | Use secure RNG |
-| `getpw()` | `getpwuid_r()` | Not thread-safe |
-| `tmpnam()` | `mkstemp()` | Race condition |
+| `new java.util.Random()` | `java.security.SecureRandom` | Predictable PRNG |
+| `MessageDigest.getInstance("MD5")` | `"SHA-256"` / `"SHA-512"` | MD5 is broken |
+| `Cipher.getInstance("DES")` | `"AES/GCM/NoPadding"` | DES key is too short |
+| Hard-coded key/IV | Generated `SecretKey` / random IV | Never embed secrets |
+
+#### Examples
+
+```java
+// ❌ BAD - Predictable random used for a token
+String token = Long.toHexString(new Random().nextLong());
+
+// ✅ GOOD - Cryptographically strong randomness
+byte[] bytes = new byte[32];
+SecureRandom.getInstanceStrong().nextBytes(bytes);
+String token = HexFormat.of().formatHex(bytes);
+```
+
+```java
+// ❌ BAD - MD5 for integrity
+MessageDigest md = MessageDigest.getInstance("MD5");
+
+// ✅ GOOD - SHA-256
+MessageDigest md = MessageDigest.getInstance("SHA-256");
+```
 
 ---
 
@@ -243,131 +298,248 @@ Do not use insecure or deprecated functions, especially for security-sensitive o
 
 ### Rule 30: Avoid Narrowing Conversions
 
-**Severity:** 🟡 Major  
-**clang-tidy checks:** `bugprone-narrowing-conversions`
+**Severity:** 🟡 Major
+**Checks:** SpotBugs `ICAST_INTEGER_MULTIPLY_CAST_TO_LONG`, `ICAST_IDIV_CAST_TO_DOUBLE`; PMD `AvoidUsingShortType` (loose)
 
 #### Description
-Check for overflow before casting to a smaller type.
+Watch for arithmetic performed in a narrow type and then widened — the overflow/truncation
+happens *before* the widening cast, so the result is wrong.
 
 #### Examples
 
-```c
-// ❌ BAD - Silent truncation
-long big = LONG_MAX;
-int small = big;  // Truncated!
+```java
+// ❌ BAD - Multiplication overflows in int, THEN widens to long
+long nanos = 1_000_000 * seconds;        // overflow when seconds is large
+double ratio = (double) (hits / total);  // integer division, then widen → always *.0
 
-// ✅ GOOD - Check before cast
-long big = LONG_MAX;
-if (big > INT_MAX || big < INT_MIN) {
-    return ERROR_OVERFLOW;
-}
-int small = (int)big;
+// ✅ GOOD - Promote to the wide type before the operation
+long nanos = 1_000_000L * seconds;       // long multiplication
+double ratio = (double) hits / total;    // floating-point division
 ```
 
 ---
 
-### Rule 31: Consistent Parameter Names
+### Rule 31: Avoid Confusing / Misleading Methods
 
-**Severity:** 🟡 Major  
-**clang-tidy checks:** `readability-inconsistent-declaration-parameter-name`
+**Severity:** 🟡 Major
+**Checks:** Checkstyle `OverloadMethodsDeclarationOrder`; SpotBugs `NM_METHOD_NAMING_CONVENTION`, `NM_CONFUSING`, `NM_VERY_CONFUSING`
+
+> The C framework used Rule 31 for **inconsistent parameter names** between declaration and
+> definition. Java has no separate declaration/definition, so the analogue is **confusing or
+> inconsistent method naming/overloads** that mislead callers.
 
 #### Description
-Function declaration and definition must use the same parameter names.
+Keep overloaded methods grouped together and avoid names that differ from another method only
+by case, or that look like (but are not) an override.
+
+#### Examples
+
+```java
+// ❌ BAD - 'compute' overloads split apart; confusing pair differing only by case
+void compute(int x) { ... }
+void process() { ... }
+void Compute(int x) { ... }   // NM_CONFUSING vs compute(int)
+void compute(long x) { ... }  // overload separated from the first
+
+// ✅ GOOD - Overloads grouped, names distinct
+void compute(int x) { ... }
+void compute(long x) { ... }
+void process() { ... }
+```
 
 ---
 
 ### Rule 32: No Redundant Code
 
-**Severity:** 🟡 Major  
-**clang-tidy checks:** `bugprone-branch-clone`, `misc-redundant-expression`
+**Severity:** 🟡 Major
+**Checks:** PMD `UnnecessaryReturn`, `EmptyControlStatement`, `UselessParentheses`; SpotBugs `RpC_REPEATED_CONDITIONAL_TEST`, `DB_DUPLICATE_BRANCHES`
 
 #### Description
-Remove duplicate, unreachable, or redundant code.
+Remove duplicate, unreachable, or redundant code. Branches that are identical, conditions
+tested twice, or empty statements usually indicate a logic error.
 
----
+#### Examples
 
-### Rule 33: Prevent Infinite Loops
-
-**Severity:** 🟡 Major  
-**clang-tidy checks:** `bugprone-infinite-loop`
-
-#### Description
-Ensure all loops have a reachable exit condition.
-
----
-
-### Rule 34: Thread Safety
-
-**Severity:** 🟡 Major  
-**clang-tidy checks:** `concurrency-mt-unsafe`
-
-#### Description
-Use thread-safe functions in multi-threaded code.
-
----
-
-### Rule 35: Performance Issues
-
-**Severity:** 🟡 Major  
-**clang-tidy checks:** `performance-*`
-
-#### Description
-Avoid unnecessary copies and allocations.
-
----
-
-## Minor Rules (Style)
-
-### Rule 40: Consistent Formatting
-
-**Severity:** 🟢 Minor  
-**Enforced by:** `.clang-format`
-
-#### Description
-Use consistent code formatting. This project uses Allman brace style with 4-space indentation.
-
-```c
-// ✅ Correct (Allman style)
-if (condition)
-{
-    do_something();
+```java
+// ❌ BAD - Duplicate branches and a repeated test
+if (x > 0) {
+    handle(x);
+} else if (x > 0) {     // Can never be true here (RpC_REPEATED_CONDITIONAL_TEST)
+    handle(x);          // ...and the branch is identical (DB_DUPLICATE_BRANCHES)
 }
 
-// ❌ Incorrect (K&R style)
-if (condition) {
-    do_something();
+// ✅ GOOD
+if (x > 0) {
+    handle(x);
+} else if (x < 0) {
+    handleNegative(x);
 }
 ```
 
 ---
 
+### Rule 33: Prevent Infinite Loops
+
+**Severity:** 🟡 Major
+**Checks:** SpotBugs `IL_INFINITE_LOOP`, `IL_INFINITE_RECURSIVE_LOOP`
+
+#### Description
+Every loop and recursion must have a reachable exit condition.
+
+#### Examples
+
+```java
+// ❌ BAD - Loop variable never changes; loop never exits
+int i = 0;
+while (i < 10) {
+    process(i);          // i is never incremented
+}
+
+// ❌ BAD - Unconditional self-recursion
+int size() {
+    return size();       // IL_INFINITE_RECURSIVE_LOOP
+}
+
+// ✅ GOOD
+for (int i = 0; i < 10; i++) {
+    process(i);
+}
+```
+
+---
+
+### Rule 34: Thread Safety
+
+**Severity:** 🟡 Major
+**Checks:** SpotBugs `IS2_INCONSISTENT_SYNC`, `DC_DOUBLECHECK`; PMD `DoubleCheckedLocking`, `NonThreadSafeSingleton`
+
+#### Description
+Access shared mutable state consistently. Either synchronize every access to a field or none,
+and never use the broken double-checked-locking idiom without a `volatile` field.
+
+#### Examples
+
+```java
+// ❌ BAD - Broken double-checked locking (instance may be seen partially constructed)
+private static Service instance;
+static Service get() {
+    if (instance == null) {
+        synchronized (Service.class) {
+            if (instance == null) {
+                instance = new Service();   // DC_DOUBLECHECK
+            }
+        }
+    }
+    return instance;
+}
+
+// ✅ GOOD - Initialization-on-demand holder idiom (thread-safe, lazy)
+private static class Holder {
+    static final Service INSTANCE = new Service();
+}
+static Service get() {
+    return Holder.INSTANCE;
+}
+```
+
+---
+
+### Rule 35: Performance Issues
+
+**Severity:** 🟡 Major
+**Checks:** PMD `AvoidInstantiatingObjectsInLoops`, `UseStringBufferForStringAppends`; SpotBugs `SBSC_USE_STRINGBUFFER_CONCATENATION`
+
+#### Description
+Avoid needless allocation. Do not build strings with `+=` in a loop, and hoist objects that do
+not change out of loops.
+
+#### Examples
+
+```java
+// ❌ BAD - Quadratic string building; new formatter every iteration
+String out = "";
+for (String row : rows) {
+    SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd");  // re-created each loop
+    out += fmt.format(now) + row + "\n";                       // O(n^2) concatenation
+}
+
+// ✅ GOOD - One StringBuilder, hoisted formatter
+DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+StringBuilder out = new StringBuilder();
+for (String row : rows) {
+    out.append(fmt.format(today)).append(row).append('\n');
+}
+```
+
+---
+
+## Minor Rules (Style)
+
+### Rule 40: Consistent Formatting & Braces
+
+**Severity:** 🟢 Minor
+**Checks:** Checkstyle `LeftCurly` (option `eol`), `RightCurly`
+
+#### Description
+This project uses the **standard Java (K&R / "end-of-line") brace style**: the opening brace
+sits at the end of the line that starts the block.
+
+```java
+// ✅ Correct (Java standard, LeftCurly option=eol)
+if (condition) {
+    doSomething();
+}
+
+// ❌ Incorrect (Allman / brace on its own line)
+if (condition)
+{
+    doSomething();
+}
+```
+
+> **C → Java:** The C version mandated **Allman** braces. Idiomatic Java (and the Google Java
+> Style Guide) puts the opening brace at the end of the line, so this rule is inverted for Java.
+
+---
+
 ### Rule 41: Naming Conventions
 
-**Severity:** 🟢 Minor  
-**clang-tidy checks:** `readability-identifier-naming`
+**Severity:** 🟢 Minor
+**Checks:** Checkstyle `MethodName`, `MemberName`, `LocalVariableName`, `ConstantName`, `TypeName`, `ParameterName`, `PackageName`
 
-| Type | Convention | Example |
-|------|------------|---------|
-| Functions | `lower_case` | `process_data()` |
-| Variables | `lower_case` | `buffer_size` |
-| Constants | `UPPER_CASE` | `MAX_SIZE` |
-| Macros | `UPPER_CASE` | `DEBUG_LOG()` |
-| Types | `CamelCase` | `DataBuffer` |
+| Element | Convention | Example |
+|---------|------------|---------|
+| Methods | `lowerCamelCase` | `processData()` |
+| Fields / variables / parameters | `lowerCamelCase` | `bufferSize` |
+| Constants (`static final`) | `UPPER_SNAKE_CASE` | `MAX_SIZE` |
+| Types (class/interface/enum) | `UpperCamelCase` | `DataBuffer` |
+| Packages | `lower.case` | `com.example.standards` |
+
+```java
+// ❌ BAD
+int Buffer_Size;
+void ProcessData() { }
+static final int maxSize = 100;
+
+// ✅ GOOD
+int bufferSize;
+void processData() { }
+static final int MAX_SIZE = 100;
+```
 
 ---
 
 ### Rule 42: Always Use Braces
 
-**Severity:** 🟢 Minor  
-**clang-tidy checks:** `readability-braces-around-statements`
+**Severity:** 🟢 Minor
+**Checks:** Checkstyle `NeedBraces`
 
 #### Description
-Use braces even for single-statement blocks to prevent bugs when adding code.
+Use braces even for single-statement blocks to prevent bugs when code is later added.
 
-```c
+```java
 // ✅ GOOD
-if (error)
-{
+if (error) {
     return -1;
 }
 
@@ -380,27 +552,39 @@ if (error)
 
 ### Rule 43: Simplify Boolean Expressions
 
-**Severity:** 🟢 Minor  
-**clang-tidy checks:** `readability-simplify-boolean-expr`
+**Severity:** 🟢 Minor
+**Checks:** Checkstyle `SimplifyBooleanExpression`, `SimplifyBooleanReturn`
 
-```c
+```java
 // ❌ Redundant
-if (flag == true)
-if (ptr != NULL)
+if (flag == true) { ... }
+if (isReady() == false) { ... }
 
-// ✅ Simplified  
-if (flag)
-if (ptr)
+boolean ok;
+if (x > 0) {
+    ok = true;
+} else {
+    ok = false;
+}
+
+// ✅ Simplified
+if (flag) { ... }
+if (!isReady()) { ... }
+
+boolean ok = x > 0;
 ```
 
 ---
 
 ### Rule 44: Avoid Else After Return
 
-**Severity:** 🟢 Minor  
-**clang-tidy checks:** `readability-else-after-return`
+**Severity:** 🟢 Minor
+**Checks:** *Advisory — no direct automated check in this toolchain.* Enforce in code review.
 
-```c
+> Neither PMD 6.55, Checkstyle 10.12.7, nor SpotBugs 4.8.3 ships a rule that exactly matches
+> "else after return," so this rule is **documented as advisory** rather than tool-enforced.
+
+```java
 // ❌ Unnecessary else
 if (error) {
     return -1;
@@ -417,42 +601,62 @@ process();
 
 ---
 
-### Rule 45: Use nullptr (C++)
+### Rule 45: Avoid Returning Null
 
-**Severity:** 🟢 Minor  
-**clang-tidy checks:** `modernize-use-nullptr`
+**Severity:** 🟢 Minor
+**Checks:** SpotBugs `PZLA_PREFER_ZERO_LENGTH_ARRAYS`; PMD `ReturnEmptyCollectionRatherThanNull`
 
-```cpp
-// ❌ C-style
-char *p = NULL;
+> The C++ rule "use `nullptr` instead of `NULL`" has no meaning in Java. The Java analogue is to
+> **avoid returning `null`** for arrays/collections — return an empty array/collection (or
+> `Optional`) so callers never need a null check.
 
-// ✅ C++ style
-char *p = nullptr;
+#### Description
+Returning `null` instead of an empty array or collection forces every caller to null-check and
+invites `NullPointerException`.
+
+```java
+// ❌ BAD - Forces null checks on every caller
+List<Order> findOrders(String userId) {
+    if (!exists(userId)) {
+        return null;
+    }
+    return orders;
+}
+
+// ✅ GOOD - Empty collection communicates "none"
+List<Order> findOrders(String userId) {
+    if (!exists(userId)) {
+        return Collections.emptyList();
+    }
+    return orders;
+}
+
+// ✅ GOOD - Zero-length array instead of null
+String[] tags() {
+    return (tags == null) ? new String[0] : tags.clone();
+}
 ```
 
 ---
 
-### Rule 46: Remove Unused Parameters
+### Rule 46: Remove Unused Parameters & Members
 
-**Severity:** 🟢 Minor  
-**clang-tidy checks:** `misc-unused-parameters`
+**Severity:** 🟢 Minor
+**Checks:** PMD `UnusedFormalParameter` (set `checkAll=true`), `UnusedPrivateField`, `UnusedLocalVariable`
 
 #### Description
-Remove or annotate unused function parameters.
+Remove unused method parameters, private fields, and local variables. Dead members confuse
+readers and often hint at incomplete implementations.
 
-```c
-// ❌ Unused parameter
+```java
+// ❌ BAD - Unused parameter and unused local
 int process(int x, int unused) {
+    int scratch = compute();   // never read
     return x;
 }
 
-// ✅ Removed
+// ✅ GOOD
 int process(int x) {
-    return x;
-}
-
-// ✅ Or annotated (C++)
-int process(int x, int /*unused*/) {
     return x;
 }
 ```
@@ -461,32 +665,49 @@ int process(int x, int /*unused*/) {
 
 ## Suppression Guide
 
-### Suppress Single Line
-```c
-risky_call();  // NOLINT(check-name)
+Use a suppression only when a finding is a verified false positive, and **always add a comment
+explaining why**.
+
+### Checkstyle
+```java
+// CHECKSTYLE:OFF
+legacyGeneratedCode();
+// CHECKSTYLE:ON
+
+// Or, with SuppressWarningsFilter enabled in checkstyle.xml:
+@SuppressWarnings("checkstyle:MethodName")
+void Legacy_Name() { }
 ```
 
-### Suppress Block
-```c
-// NOLINTBEGIN(check-name)
-legacy_code();
-more_legacy();
-// NOLINTEND(check-name)
+### PMD
+```java
+@SuppressWarnings("PMD.UnusedFormalParameter")
+int process(int x, int callbackArg) { return x; }
+
+someCall();  // NOPMD - intentional, see TICKET-123
 ```
 
-### Suppress File
-```c
-// At top of file:
-// NOLINTFILE(check-name)
-```
+### SpotBugs
+```java
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 
-**Always document why suppression is needed.**
+@SuppressFBWarnings(value = "EI_EXPOSE_REP",
+                    justification = "Returned array is documented as caller-owned")
+public int[] getSlots() {
+    return slots;
+}
+```
+(The `@SuppressFBWarnings` annotation comes from `com.github.spotbugs:spotbugs-annotations`.)
+
+**Always document why a suppression is needed; prefer fixing the issue over suppressing it.**
 
 ---
 
 ## References
 
-- [CERT C Coding Standard](https://wiki.sei.cmu.edu/confluence/display/c)
-- [CWE Common Weakness Enumeration](https://cwe.mitre.org/)
-- [clang-tidy Checks List](https://clang.llvm.org/extra/clang-tidy/checks/list.html)
-- [MISRA C Guidelines](https://www.misra.org.uk/)
+- [SEI CERT Oracle Coding Standard for Java](https://wiki.sei.cmu.edu/confluence/display/java)
+- [CWE - Common Weakness Enumeration](https://cwe.mitre.org/)
+- [SpotBugs Bug Descriptions](https://spotbugs.readthedocs.io/en/stable/bugDescriptions.html)
+- [PMD Java Rule Reference](https://docs.pmd-code.org/latest/pmd_rules_java.html)
+- [Checkstyle Checks](https://checkstyle.org/checks.html)
+- [Google Java Style Guide](https://google.github.io/styleguide/javaguide.html)
