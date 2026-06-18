@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>code-standards-compliance</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <name>Code Standards Compliance Framework</name>
+  <description>
+    Safety-critical Java code-standards enforcement framework.
+    Re-implements the severity-classified Rule 20-46 catalog on the Java
+    static-analysis toolchain: Checkstyle (formatting / naming / braces),
+    PMD + SpotBugs (bug, security, static analysis).
+  </description>
+
+  <!--
+    BUILD REQUIREMENT: run Maven on JDK 17.
+    SpotBugs (FBClassReader/ASM) crashes on JDK 26, so always build with:
+        JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 mvn ...
+    Checkstyle and PMD work on newer JDKs, but SpotBugs does not.
+  -->
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <!-- Pinned, verified plugin/tool versions (see README) -->
+    <build-helper-plugin.version>3.4.0</build-helper-plugin.version>
+    <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+    <maven-checkstyle-plugin.version>3.3.1</maven-checkstyle-plugin.version>
+    <checkstyle.version>10.12.7</checkstyle.version>
+    <maven-pmd-plugin.version>3.21.2</maven-pmd-plugin.version>
+    <spotbugs-maven-plugin.version>4.8.3.1</spotbugs-maven-plugin.version>
+    <spotbugs-annotations.version>4.8.3</spotbugs-annotations.version>
+    <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
+    <junit.version>5.10.2</junit.version>
+  </properties>
+
+  <dependencies>
+    <!-- JUnit 5 (Jupiter): the JUnit compliance suite (PR 3) compiles against this -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- SpotBugs suppression annotations: @SuppressFBWarnings (replaces NOLINT) -->
+    <dependency>
+      <groupId>com.github.spotbugs</groupId>
+      <artifactId>spotbugs-annotations</artifactId>
+      <version>${spotbugs-annotations.version}</version>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!--
+        Add examples/ as an additional source root so the reference
+        example code (added in PR 2) is compiled and analyzed alongside
+        any src/main/java sources. SpotBugs needs the compiled classes,
+        so the examples must be on the compile path.
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>${build-helper-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>add-examples-source</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>${project.basedir}/examples</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven-compiler-plugin.version}</version>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+          <!-- Example violations are intentional; never fail compilation on warnings -->
+          <failOnWarning>false</failOnWarning>
+        </configuration>
+      </plugin>
+
+      <!--
+        Checkstyle  (clang-format -> Checkstyle)
+        MINOR-tier formatting/naming/braces (Rules 40,41,42,43) + Rule 31.
+        Report goal only: generates target/checkstyle-result.xml, never fails the build.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>${maven-checkstyle-plugin.version}</version>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>${checkstyle.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <configLocation>${project.basedir}/checkstyle.xml</configLocation>
+          <consoleOutput>true</consoleOutput>
+          <failOnViolation>false</failOnViolation>
+          <failsOnError>false</failsOnError>
+          <includeTestSourceDirectory>false</includeTestSourceDirectory>
+          <outputFile>${project.build.directory}/checkstyle-result.xml</outputFile>
+          <outputFileFormat>xml</outputFileFormat>
+        </configuration>
+        <executions>
+          <execution>
+            <id>checkstyle-report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>checkstyle</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        PMD  (clang-tidy -> PMD + SpotBugs)
+        Bundles PMD 6.55.0 (PMD 6 ruleset syntax). Report goal only:
+        generates target/pmd.xml, never fails the build.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>${maven-pmd-plugin.version}</version>
+        <configuration>
+          <rulesets>
+            <ruleset>${project.basedir}/pmd-ruleset.xml</ruleset>
+          </rulesets>
+          <targetJdk>17</targetJdk>
+          <failOnViolation>false</failOnViolation>
+          <printFailingErrors>true</printFailingErrors>
+          <includeTests>false</includeTests>
+          <linkXRef>false</linkXRef>
+        </configuration>
+        <executions>
+          <execution>
+            <id>pmd-report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>pmd</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!--
+        SpotBugs  (clang-tidy -> PMD + SpotBugs)
+        SpotBugs 4.8.3. Analysis goal only: generates target/spotbugsXml.xml,
+        never fails the build. effort=Max, threshold=Low to surface all patterns.
+      -->
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <version>${spotbugs-maven-plugin.version}</version>
+        <configuration>
+          <effort>Max</effort>
+          <threshold>Low</threshold>
+          <excludeFilterFile>${project.basedir}/spotbugs-exclude.xml</excludeFilterFile>
+          <xmlOutput>true</xmlOutput>
+          <spotbugsXmlOutputDirectory>${project.build.directory}</spotbugsXmlOutputDirectory>
+          <failOnError>false</failOnError>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotbugs-report</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>spotbugs</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven-surefire-plugin.version}</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  =============================================================================
+  SpotBugs exclude filter  (clang-tidy -> SpotBugs)
+  =============================================================================
+  Bug patterns matched here are excluded from the SpotBugs report. The filter
+  starts intentionally empty: the framework WANTS SpotBugs to surface every
+  pattern in the Rule 20-46 mapping (RV_*, NP_*, OBL_*, EI_EXPOSE_REP*, DLS_*,
+  PREDICTABLE_RANDOM, IL_INFINITE_LOOP, etc.) on the example code.
+
+  Add a <Match> block here only to silence a false positive that would
+  otherwise dirty the compliant example. Prefer the @SuppressFBWarnings
+  annotation (com.github.spotbugs:spotbugs-annotations) for localized,
+  documented suppressions over broad filter entries.
+
+  Example (kept commented as a template):
+    <Match>
+      <Class name="com.example.standards.Compliant"/>
+      <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+  =============================================================================
+-->
+<FindBugsFilter>
+</FindBugsFilter>

@@ -1,21 +1,27 @@
 # =============================================================================
 # Rule Severity Mapping
 # =============================================================================
-# Maps clang-tidy checks to severity levels for reporting and CI/CD decisions.
+# Maps Checkstyle / PMD / SpotBugs checks to severity levels for reporting and
+# CI/CD decisions.
 #
 # Severity Levels:
 #   - critical: Block merge, must fix immediately (potential crashes/security)
 #   - major: Requires review, should fix before release (potential bugs)
 #   - minor: Style/preference, fix when convenient (maintainability)
 #
+# Tooling:
+#   - Checkstyle  -> formatting, naming, braces (was clang-format)
+#   - PMD         -> source-level bug / style / security analysis (was clang-tidy)
+#   - SpotBugs    -> bytecode-level bug / security analysis (was clang-tidy)
+#
 # Usage:
-#   - CI/CD can parse this file to determine pass/fail criteria
+#   - CI/CD and scripts/validate.sh parse this file to determine pass/fail criteria
 #   - Windsurf rules reference these rule IDs
 #   - Reports can group issues by severity
 # =============================================================================
 
 version: "1.0"
-last_updated: "2025-01-22"
+last_updated: "2026-06-18"
 
 severity_levels:
 
@@ -32,83 +38,85 @@ severity_levels:
         name: "Check all return values"
         rationale: "Unchecked return values hide failures, leading to undefined behavior"
         checks:
-          - bugprone-unused-return-value
-          - cert-err33-c
+          - "SpotBugs: RV_RETURN_VALUE_IGNORED_BAD_PRACTICE"
+          - "SpotBugs: RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT"
+          - "PMD: CheckResultSet"
         examples:
-          bad: "fopen(\"file.txt\", \"r\");"
-          good: "FILE *f = fopen(\"file.txt\", \"r\"); if (f == NULL) return -1;"
+          bad: "new File(\"data.txt\").delete();"
+          good: "if (!new File(\"data.txt\").delete()) { throw new IOException(\"delete failed\"); }"
 
       - rule_id: "Rule 21"
-        name: "Prevent buffer overflows"
-        rationale: "Buffer overflows are the #1 source of security vulnerabilities in C"
+        name: "Prevent injection vulnerabilities"
+        rationale: "Untrusted input flowing into SQL, OS commands or format strings is the #1 source of security vulnerabilities"
         checks:
-          - bugprone-not-null-terminated-result
-          - clang-analyzer-security.insecureAPI.strcpy
-          - bugprone-stringview-nullptr
-          - bugprone-string-literal-with-embedded-nul
+          - "SpotBugs: SQL_INJECTION_JDBC"
+          - "SpotBugs: SQL_INJECTION_PREPARED_STATEMENT"
+          - "SpotBugs: COMMAND_INJECTION"
+          - "SpotBugs: FORMAT_STRING_MANIPULATION"
         examples:
-          bad: "strcpy(dest, src);"
-          good: "strncpy(dest, src, sizeof(dest) - 1); dest[sizeof(dest) - 1] = '\\0';"
+          bad: "stmt.executeQuery(\"SELECT * FROM users WHERE id = \" + userId);"
+          good: "PreparedStatement ps = conn.prepareStatement(\"SELECT * FROM users WHERE id = ?\"); ps.setInt(1, userId);"
 
       - rule_id: "Rule 22"
         name: "Prevent null pointer dereference"
         rationale: "Null dereference causes crashes and can be exploited for DoS"
         checks:
-          - clang-analyzer-core.NullDereference
-          - clang-analyzer-core.NonNullParamChecker
+          - "SpotBugs: NP_NULL_ON_SOME_PATH"
+          - "SpotBugs: NP_NULL_PARAM_DEREF"
+          - "SpotBugs: NP_ALWAYS_NULL"
+          - "PMD: BrokenNullCheck"
         examples:
-          bad: "int x = *ptr;"
-          good: "if (ptr != NULL) { int x = *ptr; }"
+          bad: "int len = name.length();"
+          good: "if (name != null) { int len = name.length(); }"
 
       - rule_id: "Rule 23"
         name: "Prevent resource leaks"
-        rationale: "Memory leaks degrade performance and can crash long-running systems"
+        rationale: "Unclosed streams and connections degrade performance and can crash long-running systems"
         checks:
-          - clang-analyzer-unix.Malloc
-          - clang-analyzer-unix.MallocSizeof
-          - clang-analyzer-unix.MismatchedDeallocator
-          - clang-analyzer-cplusplus.NewDelete
-          - clang-analyzer-cplusplus.NewDeleteLeaks
+          - "PMD: CloseResource"
+          - "PMD: EmptyCatchBlock"
+          - "SpotBugs: OBL_UNSATISFIED_OBLIGATION"
+          - "SpotBugs: OS_OPEN_STREAM"
         examples:
-          bad: "char *buf = malloc(100); if (error) return;"
-          good: "char *buf = malloc(100); if (error) { free(buf); return; }"
+          bad: "InputStream in = new FileInputStream(f); in.read();"
+          good: "try (InputStream in = new FileInputStream(f)) { in.read(); }"
 
       - rule_id: "Rule 24"
-        name: "Prevent use-after-free"
-        rationale: "Use-after-free is a critical security vulnerability (CWE-416)"
+        name: "Prevent leaking internal references"
+        rationale: "Exposing internal mutable state (arrays/collections) lets callers corrupt object invariants (CWE-374/375)"
         checks:
-          - bugprone-use-after-move
-          - bugprone-double-free
-          - clang-analyzer-core.StackAddressEscape
+          - "SpotBugs: EI_EXPOSE_REP"
+          - "SpotBugs: EI_EXPOSE_REP2"
+          - "PMD: MethodReturnsInternalArray"
+          - "PMD: ArrayIsStoredDirectly"
         examples:
-          bad: "free(ptr); printf(\"%s\", ptr);"
-          good: "free(ptr); ptr = NULL;"
+          bad: "public int[] getValues() { return this.values; }"
+          good: "public int[] getValues() { return this.values.clone(); }"
 
       - rule_id: "Rule 25"
-        name: "Prevent uninitialized memory access"
-        rationale: "Uninitialized memory causes undefined behavior and security issues"
+        name: "Avoid dead stores and unwritten state"
+        rationale: "Dead local stores and never-written fields signal logic errors and reads of default/garbage values"
         checks:
-          - clang-analyzer-core.uninitialized.Assign
-          - clang-analyzer-core.uninitialized.Branch
-          - clang-analyzer-core.uninitialized.ArraySubscript
-          - clang-analyzer-core.UndefinedBinaryOperatorResult
+          - "SpotBugs: DLS_DEAD_LOCAL_STORE"
+          - "SpotBugs: UWF_UNWRITTEN_FIELD"
+          - "SpotBugs: NP_UNWRITTEN_FIELD"
+          - "PMD: UnusedAssignment"
         examples:
-          bad: "int x; return x;"
-          good: "int x = 0; return x;"
+          bad: "int result = compute(); result = 0; return result;"
+          good: "int result = compute(); return result;"
 
       - rule_id: "Rule 26"
-        name: "Avoid security vulnerabilities"
-        rationale: "Insecure APIs and patterns lead to exploitable vulnerabilities"
+        name: "Avoid insecure APIs"
+        rationale: "Predictable randomness and weak/obsolete cryptography lead to exploitable vulnerabilities"
         checks:
-          - clang-analyzer-security.FloatLoopCounter
-          - clang-analyzer-security.insecureAPI.rand
-          - clang-analyzer-security.insecureAPI.getpw
-          - cert-msc30-c
-          - cert-msc50-cpp
-          - cert-env33-c
+          - "SpotBugs: PREDICTABLE_RANDOM"
+          - "SpotBugs: WEAK_MESSAGE_DIGEST_MD5"
+          - "SpotBugs: DES_USAGE"
+          - "PMD: InsecureCryptoIv"
+          - "PMD: HardCodedCryptoKey"
         examples:
-          bad: "int r = rand();"
-          good: "int r; if (getrandom(&r, sizeof(r), 0) != sizeof(r)) return -1;"
+          bad: "int token = new java.util.Random().nextInt();"
+          good: "int token = java.security.SecureRandom.getInstanceStrong().nextInt();"
 
   # ===========================================================================
   # MAJOR - Requires review, potential bugs
@@ -123,65 +131,69 @@ severity_levels:
         name: "Avoid narrowing conversions"
         rationale: "Implicit narrowing can silently truncate data causing subtle bugs"
         checks:
-          - bugprone-narrowing-conversions
-          - bugprone-implicit-widening-of-multiplication-result
+          - "SpotBugs: ICAST_INTEGER_MULTIPLY_CAST_TO_LONG"
+          - "SpotBugs: ICAST_IDIV_CAST_TO_DOUBLE"
+          - "PMD: AvoidUsingShortType"
         examples:
-          bad: "int x = long_value;"
-          good: "if (long_value > INT_MAX) return -1; int x = (int)long_value;"
+          bad: "long ms = 24 * 60 * 60 * 1000 * days;"
+          good: "long ms = 24L * 60 * 60 * 1000 * days;"
 
       - rule_id: "Rule 31"
-        name: "Consistent parameter names"
-        rationale: "Mismatched names between declaration and definition cause confusion"
+        name: "Avoid confusing method overloads"
+        rationale: "Scattered or inconsistently named overloads make APIs hard to read and misuse-prone"
         checks:
-          - readability-inconsistent-declaration-parameter-name
+          - "Checkstyle: OverloadMethodsDeclarationOrder"
+          - "SpotBugs: NM_METHOD_NAMING_CONVENTION"
+          - "SpotBugs: NM_CONFUSING"
         examples:
-          bad: "// decl: int foo(int count); def: int foo(int n)"
-          good: "// decl: int foo(int count); def: int foo(int count)"
+          bad: "void add(int x){} void remove(int x){} void add(String s){}"
+          good: "void add(int x){} void add(String s){} void remove(int x){}"
 
       - rule_id: "Rule 32"
         name: "Avoid redundant code"
         rationale: "Redundant code indicates logic errors or copy-paste mistakes"
         checks:
-          - misc-redundant-expression
-          - bugprone-branch-clone
-          - readability-redundant-control-flow
-          - readability-redundant-declaration
+          - "PMD: UnnecessaryReturn"
+          - "PMD: EmptyControlStatement"
+          - "PMD: UselessParentheses"
+          - "SpotBugs: RpC_REPEATED_CONDITIONAL_TEST"
+          - "SpotBugs: DB_DUPLICATE_BRANCHES"
         examples:
-          bad: "if (x > 0) return 1; else if (x > 0) return 2;"
-          good: "if (x > 0) return 1; else if (x < 0) return 2;"
+          bad: "if (x > 0) { return 1; } else if (x > 0) { return 2; }"
+          good: "if (x > 0) { return 1; } else if (x < 0) { return 2; }"
 
       - rule_id: "Rule 33"
         name: "Prevent infinite loops"
-        rationale: "Infinite loops cause hangs and denial of service"
+        rationale: "Infinite loops and unbounded recursion cause hangs and denial of service"
         checks:
-          - bugprone-infinite-loop
-          - clang-analyzer-core.DivideZero
+          - "SpotBugs: IL_INFINITE_LOOP"
+          - "SpotBugs: IL_INFINITE_RECURSIVE_LOOP"
         examples:
-          bad: "while (1) { if (done) continue; }"
+          bad: "while (true) { if (done) { continue; } }"
           good: "while (!done) { process(); }"
 
       - rule_id: "Rule 34"
         name: "Thread safety"
-        rationale: "Non-thread-safe functions cause data races in concurrent code"
+        rationale: "Inconsistent synchronization and broken double-checked locking cause data races in concurrent code"
         checks:
-          - concurrency-mt-unsafe
-          - bugprone-spuriously-wake-up-functions
+          - "SpotBugs: IS2_INCONSISTENT_SYNC"
+          - "SpotBugs: DC_DOUBLECHECK"
+          - "PMD: DoubleCheckedLocking"
+          - "PMD: NonThreadSafeSingleton"
         examples:
-          bad: "char *home = getenv(\"HOME\");"
-          good: "char home[PATH_MAX]; if (getenv_r(\"HOME\", home, sizeof(home)) != 0) ..."
+          bad: "if (instance == null) { instance = new Service(); }"
+          good: "synchronized (lock) { if (instance == null) { instance = new Service(); } }"
 
       - rule_id: "Rule 35"
         name: "Performance issues"
-        rationale: "Unnecessary copies and allocations waste CPU and memory"
+        rationale: "Unnecessary allocations and string concatenation in loops waste CPU and memory"
         checks:
-          - performance-unnecessary-copy-initialization
-          - performance-unnecessary-value-param
-          - performance-move-const-arg
-          - performance-for-range-copy
-          - performance-inefficient-string-concatenation
+          - "PMD: AvoidInstantiatingObjectsInLoops"
+          - "PMD: UseStringBufferForStringAppends"
+          - "SpotBugs: SBSC_USE_STRINGBUFFER_CONCATENATION"
         examples:
-          bad: "void process(std::string s);"
-          good: "void process(const std::string &s);"
+          bad: "String s = \"\"; for (String p : parts) { s += p; }"
+          good: "StringBuilder sb = new StringBuilder(); for (String p : parts) { sb.append(p); }"
 
   # ===========================================================================
   # MINOR - Style/maintainability warnings
@@ -196,25 +208,33 @@ severity_levels:
         name: "Consistent formatting"
         rationale: "Consistent style improves readability and reduces merge conflicts"
         checks:
-          - "clang-format"
-        enforced_by: ".clang-format"
+          - "Checkstyle: LeftCurly (option eol - Java standard brace style)"
+          - "Checkstyle: RightCurly"
+        enforced_by: "checkstyle.xml"
 
       - rule_id: "Rule 41"
         name: "Naming conventions"
         rationale: "Consistent naming makes code more predictable and searchable"
         checks:
-          - readability-identifier-naming
+          - "Checkstyle: MethodName"
+          - "Checkstyle: MemberName"
+          - "Checkstyle: LocalVariableName"
+          - "Checkstyle: ParameterName"
+          - "Checkstyle: ConstantName"
+          - "Checkstyle: TypeName"
+          - "Checkstyle: PackageName"
         conventions:
-          functions: "lower_case"
-          variables: "lower_case"
-          constants: "UPPER_CASE"
-          types: "CamelCase"
+          methods: "lowerCamelCase"
+          variables: "lowerCamelCase"
+          constants: "UPPER_SNAKE_CASE"
+          types: "UpperCamelCase"
+          packages: "lower.case.dotted"
 
       - rule_id: "Rule 42"
         name: "Always use braces"
         rationale: "Braces prevent bugs when adding statements to conditionals/loops"
         checks:
-          - readability-braces-around-statements
+          - "Checkstyle: NeedBraces"
         examples:
           bad: "if (error) return -1;"
           good: "if (error) { return -1; }"
@@ -223,35 +243,38 @@ severity_levels:
         name: "Simplify boolean expressions"
         rationale: "Complex boolean expressions are error-prone and hard to read"
         checks:
-          - readability-simplify-boolean-expr
+          - "Checkstyle: SimplifyBooleanExpression"
+          - "Checkstyle: SimplifyBooleanReturn"
         examples:
-          bad: "if (flag == true)"
-          good: "if (flag)"
+          bad: "if (flag == true) { return true; } else { return false; }"
+          good: "return flag;"
 
       - rule_id: "Rule 44"
         name: "Avoid else after return"
         rationale: "Unnecessary else after return increases indentation"
         checks:
-          - readability-else-after-return
+          - "advisory: no automated check (review guideline only)"
         examples:
           bad: "if (error) { return -1; } else { process(); }"
           good: "if (error) { return -1; } process();"
 
       - rule_id: "Rule 45"
-        name: "Use nullptr (C++)"
-        rationale: "nullptr is type-safe, NULL and 0 are not"
+        name: "Avoid returning null"
+        rationale: "Returning null for arrays/collections forces null checks on every caller and invites NPEs"
         checks:
-          - modernize-use-nullptr
-        language: "C++ only"
+          - "SpotBugs: PZLA_PREFER_ZERO_LENGTH_ARRAYS"
+          - "PMD: ReturnEmptyArrayRatherThanNull"
         examples:
-          bad: "char *p = NULL;"
-          good: "char *p = nullptr;"
+          bad: "int[] getValues() { if (empty) { return null; } return data; }"
+          good: "int[] getValues() { if (empty) { return new int[0]; } return data; }"
 
       - rule_id: "Rule 46"
         name: "Remove unused parameters"
-        rationale: "Unused parameters indicate dead code or missing implementation"
+        rationale: "Unused parameters, fields and locals indicate dead code or missing implementation"
         checks:
-          - misc-unused-parameters
+          - "PMD: UnusedFormalParameter (checkAll=true)"
+          - "PMD: UnusedPrivateField"
+          - "PMD: UnusedLocalVariable"
         examples:
           bad: "int process(int x, int unused) { return x; }"
           good: "int process(int x) { return x; }"
@@ -259,12 +282,20 @@ severity_levels:
 # =============================================================================
 # SUPPRESSION GUIDANCE
 # =============================================================================
+# Replaces the C/C++ NOLINT family with the Java suppression syntax for each tool.
 suppression:
-  single_line: "// NOLINT(check-name)"
-  block_start: "// NOLINTBEGIN(check-name)"
-  block_end: "// NOLINTEND(check-name)"
-  file_level: "// NOLINTFILE(check-name)"
+  checkstyle:
+    inline_off: "// CHECKSTYLE:OFF"
+    inline_on: "// CHECKSTYLE:ON"
+    annotation: "@SuppressWarnings(\"checkstyle:RuleName\")"
+  pmd:
+    annotation: "@SuppressWarnings(\"PMD.RuleName\")"
+    inline: "// NOPMD - reason"
+  spotbugs:
+    annotation: "@SuppressFBWarnings(value = \"BUG_PATTERN\", justification = \"reason\")"
+    filter_file: "spotbugs-exclude.xml"
   notes:
-    - "Always add a comment explaining why the suppression is needed"
+    - "Always add a comment/justification explaining why the suppression is needed"
     - "Prefer fixing the issue over suppressing it"
     - "Suppressions should be reviewed in code review"
+    - "@SuppressFBWarnings requires the com.github.spotbugs:spotbugs-annotations dependency (provided scope)"
