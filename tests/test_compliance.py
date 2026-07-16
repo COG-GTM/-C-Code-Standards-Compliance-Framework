@@ -5,8 +5,8 @@ Verifies that clang-format and clang-tidy configurations work correctly
 and that the severity mapping is complete.
 
 Requirements:
-    - clang-format (14+)
-    - clang-tidy (14+)
+    - clang-format (LLVM 15 toolchain; 14+ supported)
+    - clang-tidy (LLVM 15 toolchain; 14+ supported)
     - pytest
     - PyYAML
 
