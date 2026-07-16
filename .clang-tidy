@@ -4,7 +4,7 @@
 # =============================================================================
 # Reference: https://clang.llvm.org/extra/clang-tidy/checks/list.html
 #
-# Target toolchain: LLVM/Clang 16
+# Target toolchain: LLVM/Clang 17
 #
 # To use: Place this file in your project root
 # Run: clang-tidy src/**/*.c -- -I./include
@@ -183,7 +183,8 @@ FormatStyle: file
 # =============================================================================
 # SYSTEM HEADERS
 # =============================================================================
-# The 'SystemHeaders' key requires clang-tidy 17+. It is omitted for the
-# LLVM/Clang 16 target (system headers are already excluded by default) and is
-# re-introduced once the target toolchain reaches version 17.
+# Don't analyze system headers.
+# NOTE: the 'SystemHeaders' key requires clang-tidy 17+; the target toolchain
+# is now LLVM/Clang 17, so it is re-enabled here.
+SystemHeaders: false
 ...
