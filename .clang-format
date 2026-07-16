@@ -4,7 +4,7 @@
 # =============================================================================
 # Reference: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
 #
-# Target toolchain: LLVM/Clang 17
+# Target toolchain: LLVM/Clang 18
 #
 # To use: Place this file in your project root
 # Run: clang-format -i src/**/*.c src/**/*.h
