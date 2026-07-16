@@ -4,6 +4,8 @@
 # =============================================================================
 # Reference: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
 #
+# Target toolchain: LLVM/Clang 20
+#
 # To use: Place this file in your project root
 # Run: clang-format -i src/**/*.c src/**/*.h
 #

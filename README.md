@@ -485,7 +485,8 @@ clangd --version
 **Ubuntu/Debian:**
 ```bash
 sudo apt-get update
-sudo apt-get install clangd-15  # or just 'clangd'
+# LLVM 16+ packages are published at https://apt.llvm.org (add the repo first):
+sudo apt-get install clangd-20  # or just 'clangd'
 
 # Verify
 clangd --version

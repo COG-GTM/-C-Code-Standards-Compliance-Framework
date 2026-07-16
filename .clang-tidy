@@ -4,6 +4,8 @@
 # =============================================================================
 # Reference: https://clang.llvm.org/extra/clang-tidy/checks/list.html
 #
+# Target toolchain: LLVM/Clang 20
+#
 # To use: Place this file in your project root
 # Run: clang-tidy src/**/*.c -- -I./include
 #
@@ -181,6 +183,8 @@ FormatStyle: file
 # =============================================================================
 # SYSTEM HEADERS
 # =============================================================================
-# Don't analyze system headers
+# Don't analyze system headers.
+# NOTE: the 'SystemHeaders' key requires clang-tidy 17+; the LLVM/Clang 20
+# target toolchain supports it, so it is enabled.
 SystemHeaders: false
 ...
