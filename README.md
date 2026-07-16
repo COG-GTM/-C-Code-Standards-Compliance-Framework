@@ -486,7 +486,7 @@ clangd --version
 ```bash
 sudo apt-get update
 # LLVM 16+ packages are published at https://apt.llvm.org (add the repo first):
-sudo apt-get install clangd-19  # or just 'clangd'
+sudo apt-get install clangd-20  # or just 'clangd'
 
 # Verify
 clangd --version

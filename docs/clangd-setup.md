@@ -39,7 +39,7 @@ export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
 sudo apt-get update
 sudo apt-get install clangd
 # Or for a specific version (LLVM 16+ via https://apt.llvm.org):
-sudo apt-get install clangd-19
+sudo apt-get install clangd-20
 ```
 
 **Windows:**

@@ -4,7 +4,7 @@
 # =============================================================================
 # Reference: https://clang.llvm.org/extra/clang-tidy/checks/list.html
 #
-# Target toolchain: LLVM/Clang 19
+# Target toolchain: LLVM/Clang 20
 #
 # To use: Place this file in your project root
 # Run: clang-tidy src/**/*.c -- -I./include
