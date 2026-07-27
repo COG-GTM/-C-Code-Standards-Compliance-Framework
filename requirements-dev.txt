@@ -1,0 +1,9 @@
+# Test dependencies for the compliance framework test suite.
+#
+# clang-format/clang-tidy are pinned so that formatter output - which changes
+# between LLVM releases - is identical locally and in CI. bash is also
+# required and is assumed to be provided by the system.
+pytest>=7.4
+PyYAML>=6.0
+clang-format==18.1.8
+clang-tidy==18.1.8

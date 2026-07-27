@@ -41,6 +41,8 @@ Desktop.ini
 test_output/
 coverage/
 .coverage
+coverage-summary.json
+baseline-coverage.json
 
 # Temporary files
 *.tmp
