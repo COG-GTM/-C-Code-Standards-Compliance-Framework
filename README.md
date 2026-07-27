@@ -104,6 +104,7 @@ You *could* build all that yourself. But why would you?
 - [Severity Classification](#severity-classification)
 - [Rule Reference](#rule-reference)
 - [Repository Contents](#repository-contents)
+- [Testing the Framework](#testing-the-framework)
 - [CI/CD Integration](#cicd-integration)
 - [clangd IDE Integration](#clangd-ide-integration)
 - [Windsurf AI Integration](#windsurf-ai-integration)
@@ -377,11 +378,49 @@ See `docs/rule-reference.md` for detailed examples of each rule.
 │
 ├── tests/
 │   ├── __init__.py
-│   └── test_compliance.py         # Automated tests for configs
+│   ├── framework_coverage.py      # Coverage collector (shell tracing + artifacts)
+│   ├── test_compliance.py         # Smoke tests for configs
+│   ├── test_severity_mapping.py   # Rule/severity/check mapping
+│   ├── test_clang_configs.py      # .clang-format/.clang-tidy/.clangd consistency
+│   ├── test_validate_script.py    # validate.sh behaviour and exit codes
+│   ├── test_generate_compile_commands.py # Compilation database generation
+│   ├── test_examples.py           # compliant.c / violations.c against real tooling
+│   ├── test_documentation.py      # Docs, README and Windsurf ruleset consistency
+│   └── test_framework_coverage.py # Tests for the coverage collector
 │
 └── docs/
     ├── rule-reference.md          # Detailed rule documentation
     └── clangd-setup.md            # clangd setup guide
+```
+
+---
+
+## Testing the Framework
+
+```bash
+pip install -r requirements-dev.txt   # pytest, PyYAML, pinned clang-format/clang-tidy
+pytest                                 # runs the suite and prints framework coverage
+```
+
+Because the framework ships configuration and shell scripts rather than a
+library, coverage is measured in two ways:
+
+| Metric | Meaning |
+|--------|---------|
+| Shell line coverage | Executable lines of `scripts/*.sh` run under `bash -x` tracing |
+| Artifact coverage | Rules, clang-tidy checks and shipped files asserted on by passing tests |
+
+Tests declare what they exercise with the `covers` fixture, and the run writes
+`coverage-summary.json`:
+
+```python
+def test_rule_is_documented(covers):
+    covers("rule:Rule 20", "file:docs/rule-reference.md")
+```
+
+```bash
+pytest --framework-cov-fail-under 95    # gate used by CI
+pytest --framework-cov-json report.json # write the summary elsewhere
 ```
 
 ---

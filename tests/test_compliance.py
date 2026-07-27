@@ -13,7 +13,6 @@ Requirements:
 Run: pytest tests/test_compliance.py -v
 """
 
-import os
 import subprocess
 import shutil
 from pathlib import Path
@@ -53,36 +52,42 @@ requires_clang_tidy = pytest.mark.skipif(
 class TestConfigurationFiles:
     """Tests for configuration file existence and validity."""
 
-    def test_clang_format_exists(self):
+    def test_clang_format_exists(self, covers):
         """Verify .clang-format config exists at project root."""
+        covers("file:.clang-format")
         config_path = PROJECT_ROOT / ".clang-format"
         assert config_path.exists(), "Missing .clang-format configuration file"
 
-    def test_clang_tidy_exists(self):
+    def test_clang_tidy_exists(self, covers):
         """Verify .clang-tidy config exists at project root."""
+        covers("file:.clang-tidy")
         config_path = PROJECT_ROOT / ".clang-tidy"
         assert config_path.exists(), "Missing .clang-tidy configuration file"
 
-    def test_severity_mapping_exists(self):
+    def test_severity_mapping_exists(self, covers):
         """Verify rule-severity-mapping.yaml exists."""
+        covers("file:rule-severity-mapping.yaml")
         mapping_path = PROJECT_ROOT / "rule-severity-mapping.yaml"
         assert mapping_path.exists(), "Missing rule-severity-mapping.yaml"
 
-    def test_windsurf_rules_exist(self):
+    def test_windsurf_rules_exist(self, covers):
         """Verify Windsurf rules file exists."""
+        covers("file:windsurf/c-safety-critical-rules.md")
         rules_path = PROJECT_ROOT / "windsurf" / "c-safety-critical-rules.md"
         assert rules_path.exists(), "Missing windsurf/c-safety-critical-rules.md"
 
-    def test_validate_script_exists(self):
+    def test_validate_script_exists(self, covers):
         """Verify validation script exists."""
+        covers("file:scripts/validate.sh")
         script_path = SCRIPTS_DIR / "validate.sh"
         assert script_path.exists(), "Missing scripts/validate.sh"
 
-    def test_validate_script_is_executable(self):
+    def test_validate_script_is_executable(self, covers):
         """Verify validation script has correct structure."""
+        covers("file:scripts/validate.sh")
         script_path = SCRIPTS_DIR / "validate.sh"
         if script_path.exists():
-            content = script_path.read_text()
+            content = script_path.read_text(encoding="utf-8")
             assert "#!/bin/bash" in content, "Script should have bash shebang"
             assert "clang-format" in content, "Script should use clang-format"
             assert "clang-tidy" in content, "Script should use clang-tidy"
@@ -96,8 +101,9 @@ class TestConfigurationFiles:
 class TestClangFormat:
     """Tests for clang-format configuration."""
 
-    def test_config_is_valid_yaml(self):
+    def test_config_is_valid_yaml(self, covers):
         """Verify .clang-format is valid and can be parsed."""
+        covers("file:.clang-format")
         result = subprocess.run(
             ["clang-format", "--dump-config"],
             cwd=PROJECT_ROOT,
@@ -121,8 +127,9 @@ class TestClangFormat:
         assert "BreakBeforeBraces:" in config, "Missing BreakBeforeBraces setting"
         assert "PointerAlignment:" in config, "Missing PointerAlignment setting"
 
-    def test_compliant_example_format(self):
+    def test_compliant_example_format(self, covers):
         """Test that compliant.c can be processed by clang-format."""
+        covers("file:examples/compliant.c")
         compliant = EXAMPLES_DIR / "compliant.c"
         if not compliant.exists():
             pytest.skip("compliant.c not found")
@@ -144,8 +151,9 @@ class TestClangFormat:
 class TestClangTidy:
     """Tests for clang-tidy configuration."""
 
-    def test_config_is_valid(self):
+    def test_config_is_valid(self, covers):
         """Verify .clang-tidy can be loaded."""
+        covers("file:.clang-tidy")
         config_path = PROJECT_ROOT / ".clang-tidy"
         assert config_path.exists()
 
@@ -158,8 +166,9 @@ class TestClangTidy:
         # clang-tidy returns 0 even with no files
         assert "Enabled checks:" in result.stdout or result.returncode == 0
 
-    def test_violations_detected(self):
+    def test_violations_detected(self, covers):
         """Test that violations.c triggers warnings."""
+        covers("file:examples/violations.c")
         violations = EXAMPLES_DIR / "violations.c"
         if not violations.exists():
             pytest.skip("violations.c not found")
@@ -193,7 +202,7 @@ class TestSeverityMapping:
             pytest.skip("PyYAML not installed")
 
         mapping_path = PROJECT_ROOT / "rule-severity-mapping.yaml"
-        with open(mapping_path) as f:
+        with open(mapping_path, encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     def test_has_all_severity_levels(self, severity_config):
@@ -211,9 +220,10 @@ class TestSeverityMapping:
         assert "rules" in critical
         assert len(critical["rules"]) > 0, "Critical level should have rules"
 
-    def test_critical_rules_have_checks(self, severity_config):
+    def test_critical_rules_have_checks(self, severity_config, covers):
         """Verify critical rules have associated clang-tidy checks."""
         critical = severity_config["severity_levels"]["critical"]
+        covers(*[f"rule:{rule['rule_id']}" for rule in critical["rules"]])
         for rule in critical["rules"]:
             assert "rule_id" in rule, "Rule missing rule_id"
             assert "checks" in rule, f"Rule {rule.get('rule_id')} missing checks"
@@ -251,28 +261,32 @@ class TestSeverityMapping:
 class TestExampleFiles:
     """Tests for example code files."""
 
-    def test_compliant_example_exists(self):
+    def test_compliant_example_exists(self, covers):
         """Verify compliant.c example exists."""
+        covers("file:examples/compliant.c")
         compliant = EXAMPLES_DIR / "compliant.c"
         assert compliant.exists(), "Missing examples/compliant.c"
 
-    def test_violations_example_exists(self):
+    def test_violations_example_exists(self, covers):
         """Verify violations.c example exists."""
+        covers("file:examples/violations.c")
         violations = EXAMPLES_DIR / "violations.c"
         assert violations.exists(), "Missing examples/violations.c"
 
-    def test_compliant_has_main(self):
+    def test_compliant_has_main(self, covers):
         """Verify compliant.c has a main function."""
+        covers("file:examples/compliant.c")
         compliant = EXAMPLES_DIR / "compliant.c"
         if compliant.exists():
-            content = compliant.read_text()
+            content = compliant.read_text(encoding="utf-8")
             assert "int main" in content, "compliant.c should have main()"
 
-    def test_violations_documents_rules(self):
+    def test_violations_documents_rules(self, covers):
         """Verify violations.c documents which rules are violated."""
+        covers("file:examples/violations.c")
         violations = EXAMPLES_DIR / "violations.c"
         if violations.exists():
-            content = violations.read_text()
+            content = violations.read_text(encoding="utf-8")
             # Should mention rule violations
             assert "Rule 20" in content or "VIOLATION" in content, \
                 "violations.c should document rule violations"
@@ -285,28 +299,32 @@ class TestExampleFiles:
 class TestDocumentation:
     """Tests for documentation completeness."""
 
-    def test_readme_exists(self):
+    def test_readme_exists(self, covers):
         """Verify README.md exists."""
+        covers("file:README.md")
         readme = PROJECT_ROOT / "README.md"
         assert readme.exists(), "Missing README.md"
 
-    def test_readme_has_quick_start(self):
+    def test_readme_has_quick_start(self, covers):
         """Verify README has quick start section."""
+        covers("file:README.md")
         readme = PROJECT_ROOT / "README.md"
         if readme.exists():
-            content = readme.read_text()
+            content = readme.read_text(encoding="utf-8")
             assert "Quick Start" in content, "README should have Quick Start section"
 
-    def test_readme_has_severity_info(self):
+    def test_readme_has_severity_info(self, covers):
         """Verify README documents severity levels."""
+        covers("file:README.md")
         readme = PROJECT_ROOT / "README.md"
         if readme.exists():
-            content = readme.read_text()
+            content = readme.read_text(encoding="utf-8")
             assert "Critical" in content and "Major" in content and "Minor" in content, \
                 "README should document severity levels"
 
-    def test_rule_reference_exists(self):
+    def test_rule_reference_exists(self, covers):
         """Verify rule reference documentation exists."""
+        covers("file:docs/rule-reference.md")
         rule_ref = PROJECT_ROOT / "docs" / "rule-reference.md"
         assert rule_ref.exists(), "Missing docs/rule-reference.md"
 

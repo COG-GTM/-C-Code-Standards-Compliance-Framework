@@ -1,0 +1,70 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Show tool versions
+        run: |
+          clang-format --version
+          clang-tidy --version
+          bash --version | head -1
+
+      - name: Run test suite with framework coverage
+        run: |
+          pytest -q \
+            --framework-cov-json coverage-summary.json \
+            --framework-cov-fail-under 95
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          data = json.loads(pathlib.Path("coverage-summary.json").read_text())
+          print("## Framework coverage\n")
+          print("| Metric | Coverage |")
+          print("| --- | --- |")
+          for script, item in data["shell_line_coverage"].items():
+              print(f"| {script} | {item['percent']:.1f}% ({item['covered']}/{item['total']}) |")
+          for kind, item in data["artifact_coverage"].items():
+              print(f"| {kind}s asserted | {item['percent']:.1f}% ({item['covered']}/{item['total']}) |")
+          print(f"| **artifact total** | **{data['artifact_coverage_percent']:.1f}%** |")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-summary
+          path: coverage-summary.json
+
+  validate-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install clang tooling
+        run: pip install -r requirements-dev.txt
+
+      - name: The violations example must be rejected
+        run: |
+          ./scripts/validate.sh examples && exit 1
+          echo "validate.sh correctly rejected examples/violations.c"
