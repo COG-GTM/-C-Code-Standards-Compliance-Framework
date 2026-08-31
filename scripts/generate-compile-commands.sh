@@ -141,12 +141,16 @@ generate_manually() {
         COMPILER="cc"
     fi
     
-    # Build include flags
-    INCLUDE_FLAGS="-I. -I./include -I./src"
+    # Build include flags as JSON array elements (one quoted string per flag)
+    INCLUDE_FLAGS='"-I.",
+      "-I./include",
+      "-I./src",'
     
     # Check for common include directories
-    [ -d "inc" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS -I./inc"
-    [ -d "includes" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS -I./includes"
+    [ -d "inc" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS
+      \"-I./inc\","
+    [ -d "includes" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS
+      \"-I./includes\","
     
     # Start JSON array
     echo "[" > compile_commands.json
@@ -192,9 +196,6 @@ EOF
     
     echo "" >> compile_commands.json
     echo "]" >> compile_commands.json
-    
-    # Fix the include flags formatting (they need to be separate array elements)
-    # This is a simplified version - proper JSON would split each -I flag
     
     FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
     print_success "Generated compile_commands.json with $FILE_COUNT entries"
