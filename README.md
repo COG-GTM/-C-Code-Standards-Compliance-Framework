@@ -261,9 +261,9 @@ clangd and clang-tidy need `compile_commands.json` to resolve include paths and 
 
 The script tries four methods in order:
 
-1. **CMake**: if `CMakeLists.txt` exists, runs `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON`.
+1. **CMake**: if `CMakeLists.txt` exists, runs `cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..` from a `build/` directory and copies the result to the project root.
 2. **Bear**: intercepts `make` to log compiler invocations.
-3. **Manual crawl**: scans for `.c`/`.cpp` files and generates a heuristic entry for each.
+3. **Manual crawl**: scans for `.c`/`.cpp` files and generates a heuristic entry for each. This path is best-effort; review the generated file before relying on it, as the hand-built JSON may need cleanup.
 4. **Template**: writes a minimal fallback `compile_commands.json` if no files are found.
 
 ### Step 3: Run the First Validation
@@ -276,7 +276,7 @@ The script tries four methods in order:
 ./scripts/validate.sh examples/ --fix
 ```
 
-To verify the installation, run `validate.sh` against `examples/compliant.c` (expected to pass) and `examples/violations.c` (expected to report Critical and Major findings).
+To verify the installation, run `validate.sh examples/`. The script takes a directory, not individual files (a non-directory argument is ignored and the current directory is used). Expect `examples/compliant.c` to pass and `examples/violations.c` to report findings, so the run as a whole exits non-zero.
 
 ---
 
@@ -380,7 +380,7 @@ sequenceDiagram
     Val-->>Dev: Summary and exit code (0-3)
 ```
 
-Checks promoted to errors are controlled by `WarningsAsErrors` in `.clang-tidy`, which is how Critical rules end up blocking the pipeline.
+The script does not read `rule-severity-mapping.yaml`. What blocks is determined by two things: any formatting deviation (exit 1), and any clang-tidy check listed in `WarningsAsErrors` in `.clang-tidy` (exit 2). `WarningsAsErrors` covers most, but not all, checks assigned to Critical rules in the mapping (for example `clang-analyzer-core.NonNullParamChecker` and `clang-analyzer-core.StackAddressEscape` are Critical in the YAML but only emit warnings), so keep the two files in sync when customizing.
 
 ---
 
@@ -392,7 +392,9 @@ Issues are classified into three severity levels defined in `rule-severity-mappi
 |----------|---------------|--------|---------------|----------|
 | **Critical** | Rule 20-29 | `block_merge` - must fix immediately | Yes | Null dereference, buffer overflow, use-after-free, unchecked return values |
 | **Major** | Rule 30-39 | `require_review` - requires manual review | Recommended | Narrowing conversions, redundant code, thread safety |
-| **Minor** | Rule 40-49 | `warn_only` - fix when convenient | No | Formatting, naming conventions, style preferences |
+| **Minor** | Rule 40-49 | `warn_only` - fix when convenient | No (except formatting, see below) | Formatting, naming conventions, style preferences |
+
+Note: the `action` values describe the intended triage policy. `validate.sh` enforces a simpler gate: formatting failures (Rule 40) always exit non-zero, and clang-tidy findings block only if the check appears in `WarningsAsErrors`. See [Validation Pipeline](#validation-pipeline-validatesh).
 
 ### Why Severity Matters
 
@@ -475,7 +477,7 @@ Configures the language server:
 
 ### `rule-severity-mapping.yaml`
 
-The bridge between tool output and human-readable rules. Each severity tier has an `action` (`block_merge`, `require_review`, `warn_only`) and a list of rules; each rule has a `rule_id`, `name`, `description`, and `checks` list. A `suppression` section documents the standard `NOLINT` syntax.
+The bridge between tool output and human-readable rules. Each severity tier has an `action` (`block_merge`, `require_review`, `warn_only`) and a list of rules; each rule has a `rule_id`, `name`, `rationale`, a `checks` list, and `examples` (`bad`/`good`). A `suppression` section documents the standard `NOLINT` syntax.
 
 ---
 
@@ -645,8 +647,8 @@ pytest tests/test_compliance.py -v
 
 | Test Class | What It Verifies |
 |------------|------------------|
-| `TestConfigurationFiles` | `.clang-format`, `.clang-tidy`, `rule-severity-mapping.yaml`, and the Windsurf rules exist; `validate.sh` exists and is executable |
-| `TestClangFormat` | `.clang-format` is accepted by `clang-format --dump-config`, contains `IndentWidth`, `BreakBeforeBraces`, and `PointerAlignment`, and `examples/compliant.c` passes a dry run |
+| `TestConfigurationFiles` | `.clang-format`, `.clang-tidy`, `rule-severity-mapping.yaml`, and the Windsurf rules exist; `validate.sh` exists, has a bash shebang, and invokes both `clang-format` and `clang-tidy` |
+| `TestClangFormat` | `.clang-format` is accepted by `clang-format --dump-config`, contains `IndentWidth`, `BreakBeforeBraces`, and `PointerAlignment`, and `clang-format --dry-run` runs successfully on `examples/compliant.c` (without `--Werror`, so this checks the tool runs, not that the file is fully compliant) |
 | `TestClangTidy` | `.clang-tidy` is valid (`--list-checks`) and analyzing `examples/violations.c` produces at least one warning or error |
 | `TestSeverityMapping` | All three severity tiers exist, Critical has rules, every rule has checks, Rule IDs are unique and Critical rules start at Rule 20 |
 | `TestExampleFiles` | Both examples exist, `compliant.c` has `main`, `violations.c` documents its Rule IDs |
