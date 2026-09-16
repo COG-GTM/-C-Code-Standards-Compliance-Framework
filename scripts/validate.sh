@@ -181,15 +181,41 @@ SOURCE_FILES=$(echo "$FILES" | grep -E '\.(c|cpp|cc|cxx)$' || true)
 if [ -z "$SOURCE_FILES" ]; then
     print_info "No source files to analyze (headers only)"
 else
+    # Run clang-tidy across all cores. clang-tidy is the most expensive step
+    # (a full translation-unit parse/analysis per file), so scheduling the
+    # per-file analyses in parallel cuts wall time to ~1/nproc of serial with
+    # identical checks, config, and per-file classification.
+    NPROC=$(nproc 2>/dev/null || echo 4)
+    TIDY_TMP=$(mktemp -d)
+    trap 'rm -rf "$TIDY_TMP"' EXIT
+
+    idx=0
     for file in $SOURCE_FILES; do
-        # Run clang-tidy
-        OUTPUT=$(clang-tidy \
+        echo "$idx $file"
+        idx=$((idx + 1))
+    done > "$TIDY_TMP/manifest"
+
+    run_tidy() {
+        local idx="$1" file="$2"
+        clang-tidy \
             --config-file="$PROJECT_ROOT/.clang-tidy" \
             "$file" \
             -- \
             -I"$TARGET_DIR" \
             -I"$PROJECT_ROOT" \
-            2>&1 || true)
+            > "$TIDY_TMP/$idx.out" 2>&1 || true
+    }
+    export -f run_tidy
+    export PROJECT_ROOT TARGET_DIR TIDY_TMP
+
+    xargs -P "$NPROC" -L1 bash -c 'run_tidy "$@"' _ < "$TIDY_TMP/manifest"
+
+    # Classify each file's captured output serially, in the original order, so
+    # printed messages and error/warning counts are identical to the serial run.
+    idx=0
+    for file in $SOURCE_FILES; do
+        OUTPUT=$(cat "$TIDY_TMP/$idx.out")
+        idx=$((idx + 1))
 
         # Check for errors (Critical)
         if echo "$OUTPUT" | grep -q "error:"; then
