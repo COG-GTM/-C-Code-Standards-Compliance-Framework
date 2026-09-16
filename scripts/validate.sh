@@ -136,26 +136,64 @@ TIDY_WARNINGS=0
 
 print_section "clang-format check"
 
+# Run clang-format across all cores instead of one serial process per file.
+# Each file is independent (check is read-only; -i edits distinct files), so
+# results, per-file PASS/FAIL messages, and the FORMAT_ERRORS count are
+# identical to the serial run - only scheduling changes.
+FMT_NPROC=$(nproc 2>/dev/null || echo 4)
+FMT_TMP=$(mktemp -d)
+trap 'rm -rf "$FMT_TMP"' EXIT
+
+idx=0
 for file in $FILES; do
+    echo "$idx $file"
+    idx=$((idx + 1))
+done > "$FMT_TMP/manifest"
+
+format_one() {
+    local idx="$1" file="$2"
     if $FIX_MODE; then
         # Apply formatting fixes
         if clang-format -i --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
            clang-format -i "$file" 2>/dev/null; then
-            print_pass "Formatted: $file"
+            echo pass > "$FMT_TMP/$idx.st"
         else
-            print_fail "Could not format: $file"
-            FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
+            echo fail > "$FMT_TMP/$idx.st"
         fi
     else
         # Check only (dry run)
         if clang-format --dry-run --Werror --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
            clang-format --dry-run --Werror "$file" 2>/dev/null; then
-            print_pass "$file"
+            echo pass > "$FMT_TMP/$idx.st"
         else
-            print_fail "$file (needs formatting)"
-            FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
+            echo fail > "$FMT_TMP/$idx.st"
         fi
     fi
+}
+export -f format_one
+export FIX_MODE PROJECT_ROOT FMT_TMP
+
+xargs -P "$FMT_NPROC" -L1 bash -c 'format_one "$@"' _ < "$FMT_TMP/manifest"
+
+# Emit per-file results serially, in the original order, so output and the
+# FORMAT_ERRORS count match the serial run exactly.
+idx=0
+for file in $FILES; do
+    if [ "$(cat "$FMT_TMP/$idx.st")" = pass ]; then
+        if $FIX_MODE; then
+            print_pass "Formatted: $file"
+        else
+            print_pass "$file"
+        fi
+    else
+        if $FIX_MODE; then
+            print_fail "Could not format: $file"
+        else
+            print_fail "$file (needs formatting)"
+        fi
+        FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
+    fi
+    idx=$((idx + 1))
 done
 
 if [ $FORMAT_ERRORS -eq 0 ]; then
