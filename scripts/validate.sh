@@ -191,25 +191,49 @@ else
             -I"$PROJECT_ROOT" \
             2>&1 || true)
 
-        # Check for errors (Critical)
-        if echo "$OUTPUT" | grep -q "error:"; then
-            print_fail "$file (critical issues)"
-            # Show first few errors
-            echo "$OUTPUT" | grep "error:" | head -3 | while read -r line; do
-                echo "    $line"
-            done
-            TIDY_ERRORS=$((TIDY_ERRORS + 1))
-        # Check for warnings (Major/Minor)
-        elif echo "$OUTPUT" | grep -q "warning:"; then
-            print_warn "$file (warnings)"
-            # Show first few warnings
-            echo "$OUTPUT" | grep "warning:" | head -3 | while read -r line; do
-                echo "    $line"
-            done
-            TIDY_WARNINGS=$((TIDY_WARNINGS + 1))
-        else
-            print_pass "$file"
-        fi
+        # Classify the output in a single pass: one awk scan decides
+        # error vs warning vs clean and captures the first 3 matching lines,
+        # replacing the 2-4 separate grep passes over $OUTPUT. Same decisions
+        # and printed lines, fewer subshell spawns per file.
+        mapfile -t TIDY_RESULT < <(printf '%s\n' "$OUTPUT" | awk '
+            BEGIN { ec = 0; wc = 0 }
+            /error:/   { if (ec < 3) errs[ec] = $0; ec++ }
+            /warning:/ { if (wc < 3) warns[wc] = $0; wc++ }
+            END {
+                if (ec > 0) {
+                    print "error"
+                    n = (ec < 3 ? ec : 3)
+                    for (i = 0; i < n; i++) print "    " errs[i]
+                } else if (wc > 0) {
+                    print "warning"
+                    n = (wc < 3 ? wc : 3)
+                    for (i = 0; i < n; i++) print "    " warns[i]
+                } else {
+                    print "clean"
+                }
+            }')
+
+        case "${TIDY_RESULT[0]}" in
+            error)
+                print_fail "$file (critical issues)"
+                # Show first few errors
+                for ((i = 1; i < ${#TIDY_RESULT[@]}; i++)); do
+                    echo "${TIDY_RESULT[$i]}"
+                done
+                TIDY_ERRORS=$((TIDY_ERRORS + 1))
+                ;;
+            warning)
+                print_warn "$file (warnings)"
+                # Show first few warnings
+                for ((i = 1; i < ${#TIDY_RESULT[@]}; i++)); do
+                    echo "${TIDY_RESULT[$i]}"
+                done
+                TIDY_WARNINGS=$((TIDY_WARNINGS + 1))
+                ;;
+            *)
+                print_pass "$file"
+                ;;
+        esac
     done
 fi
 
