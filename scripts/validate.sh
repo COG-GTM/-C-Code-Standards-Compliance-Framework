@@ -191,24 +191,51 @@ else
             -I"$PROJECT_ROOT" \
             2>&1 || true)
 
-        # Check for errors (Critical)
-        if echo "$OUTPUT" | grep -q "error:"; then
-            print_fail "$file (critical issues)"
-            # Show first few errors
-            echo "$OUTPUT" | grep "error:" | head -3 | while read -r line; do
+        # Single awk pass classifies the output (error / warning / clean) and
+        # captures the first 3 matching diagnostics.
+        CLASSIFIED=$(printf '%s\n' "$OUTPUT" | awk '
+            /error:/   { if (errors   < 3) { error_line[errors++]     = $0 } else { errors++ } }
+            /warning:/ { if (warnings < 3) { warning_line[warnings++] = $0 } else { warnings++ } }
+            END {
+                if (errors > 0) {
+                    print "error"
+                    for (i = 0; i < errors && i < 3; i++) { print error_line[i] }
+                } else if (warnings > 0) {
+                    print "warning"
+                    for (i = 0; i < warnings && i < 3; i++) { print warning_line[i] }
+                } else {
+                    print "clean"
+                }
+            }')
+
+        STATUS=${CLASSIFIED%%$'\n'*}
+        DIAGNOSTICS=""
+        if [[ "$CLASSIFIED" == *$'\n'* ]]; then
+            DIAGNOSTICS=${CLASSIFIED#*$'\n'}
+        fi
+
+        case "$STATUS" in
+            error)
+                print_fail "$file (critical issues)"
+                ;;
+            warning)
+                print_warn "$file (warnings)"
+                ;;
+            *)
+                print_pass "$file"
+                ;;
+        esac
+
+        if [ -n "$DIAGNOSTICS" ]; then
+            while read -r line; do
                 echo "    $line"
-            done
+            done <<< "$DIAGNOSTICS"
+        fi
+
+        if [ "$STATUS" = "error" ]; then
             TIDY_ERRORS=$((TIDY_ERRORS + 1))
-        # Check for warnings (Major/Minor)
-        elif echo "$OUTPUT" | grep -q "warning:"; then
-            print_warn "$file (warnings)"
-            # Show first few warnings
-            echo "$OUTPUT" | grep "warning:" | head -3 | while read -r line; do
-                echo "    $line"
-            done
+        elif [ "$STATUS" = "warning" ]; then
             TIDY_WARNINGS=$((TIDY_WARNINGS + 1))
-        else
-            print_pass "$file"
         fi
     done
 fi
