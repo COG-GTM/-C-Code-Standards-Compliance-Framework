@@ -90,6 +90,31 @@ print_info() {
     echo -e "${BLUE}ℹ INFO${NC}: $1"
 }
 
+# Number of parallel jobs to use for static analysis
+job_count() {
+    local jobs
+    jobs=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+    case $jobs in
+        ''|*[!0-9]*) jobs=1 ;;
+    esac
+    echo "$jobs"
+}
+
+# Analyze a single source file and store clang-tidy output in $2/$3.out
+analyze_file() {
+    local file="$1"
+    local out_dir="$2"
+    local index="$3"
+
+    clang-tidy \
+        --config-file="$PROJECT_ROOT/.clang-tidy" \
+        "$file" \
+        -- \
+        -I"$TARGET_DIR" \
+        -I"$PROJECT_ROOT" \
+        > "$out_dir/$index.out" 2>&1 || true
+}
+
 # -----------------------------------------------------------------------------
 # Main Script
 # -----------------------------------------------------------------------------
@@ -181,15 +206,24 @@ SOURCE_FILES=$(echo "$FILES" | grep -E '\.(c|cpp|cc|cxx)$' || true)
 if [ -z "$SOURCE_FILES" ]; then
     print_info "No source files to analyze (headers only)"
 else
+    JOBS=$(job_count)
+    print_info "Running clang-tidy with $JOBS parallel job(s)"
+
+    TIDY_OUT_DIR=$(mktemp -d)
+    trap 'rm -rf "$TIDY_OUT_DIR"' EXIT
+
+    export -f analyze_file
+    export PROJECT_ROOT TARGET_DIR TIDY_OUT_DIR
+
+    # Analyze every source file in parallel; results are collected per file and
+    # reported below in the original file order.
+    printf '%s\n' $SOURCE_FILES | nl -w1 -s' ' | \
+        xargs -P "$JOBS" -n 2 bash -c 'analyze_file "$2" "$TIDY_OUT_DIR" "$1"' _
+
+    INDEX=0
     for file in $SOURCE_FILES; do
-        # Run clang-tidy
-        OUTPUT=$(clang-tidy \
-            --config-file="$PROJECT_ROOT/.clang-tidy" \
-            "$file" \
-            -- \
-            -I"$TARGET_DIR" \
-            -I"$PROJECT_ROOT" \
-            2>&1 || true)
+        INDEX=$((INDEX + 1))
+        OUTPUT=$(cat "$TIDY_OUT_DIR/$INDEX.out" 2>/dev/null || true)
 
         # Check for errors (Critical)
         if echo "$OUTPUT" | grep -q "error:"; then
