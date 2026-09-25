@@ -125,6 +125,10 @@ fi
 FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
 print_info "Found $FILE_COUNT file(s) to check"
 
+# Parallelism for the per-file tool invocations
+JOBS=$(nproc 2>/dev/null || echo 4)
+print_info "Using $JOBS parallel job(s)"
+
 # Track errors
 FORMAT_ERRORS=0
 TIDY_ERRORS=0
@@ -136,27 +140,61 @@ TIDY_WARNINGS=0
 
 print_section "clang-format check"
 
-for file in $FILES; do
-    if $FIX_MODE; then
-        # Apply formatting fixes
-        if clang-format -i --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format -i "$file" 2>/dev/null; then
+# Resolve the style argument once: whether clang-format accepts the project
+# style file does not vary per file.
+CF_STYLE=""
+PROBE_FILE=$(printf '%s\n' "$FILES" | head -n 1)
+if clang-format --style=file:"$PROJECT_ROOT/.clang-format" \
+       --output-replacements-xml "$PROBE_FILE" >/dev/null 2>&1; then
+    CF_STYLE="--style=file:$PROJECT_ROOT/.clang-format"
+else
+    print_warn "Could not use $PROJECT_ROOT/.clang-format, falling back to default style"
+fi
+export CF_STYLE
+
+if $FIX_MODE; then
+    # Apply formatting fixes in batches (clang-format -i accepts many files),
+    # falling back to per-file runs within a failing batch so the offending
+    # file is still reported.
+    FORMAT_RESULTS=$(printf '%s\n' "$FILES" | xargs -n 32 -P "$JOBS" sh -c '
+        if clang-format -i ${CF_STYLE:+"$CF_STYLE"} "$@" 2>/dev/null; then
+            for f in "$@"; do printf "PASS\t%s\n" "$f"; done
+        else
+            for f in "$@"; do
+                if clang-format -i ${CF_STYLE:+"$CF_STYLE"} "$f" 2>/dev/null; then
+                    printf "PASS\t%s\n" "$f"
+                else
+                    printf "FAIL\t%s\n" "$f"
+                fi
+            done
+        fi' _ || true)
+else
+    # Check only (dry run), one file per process but spread across all cores
+    FORMAT_RESULTS=$(printf '%s\n' "$FILES" | xargs -P "$JOBS" -I {} sh -c '
+        if clang-format --dry-run --Werror ${CF_STYLE:+"$CF_STYLE"} "$1" 2>/dev/null; then
+            printf "PASS\t%s\n" "$1"
+        else
+            printf "FAIL\t%s\n" "$1"
+        fi' _ {} || true)
+fi
+
+while IFS=$'\t' read -r status file; do
+    [ -n "$file" ] || continue
+    if [ "$status" = "PASS" ]; then
+        if $FIX_MODE; then
             print_pass "Formatted: $file"
         else
-            print_fail "Could not format: $file"
-            FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
+            print_pass "$file"
         fi
     else
-        # Check only (dry run)
-        if clang-format --dry-run --Werror --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format --dry-run --Werror "$file" 2>/dev/null; then
-            print_pass "$file"
+        if $FIX_MODE; then
+            print_fail "Could not format: $file"
         else
             print_fail "$file (needs formatting)"
-            FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
         fi
+        FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
     fi
-done
+done < <(printf '%s\n' "$FORMAT_RESULTS" | sort -t$'\t' -k2)
 
 if [ $FORMAT_ERRORS -eq 0 ]; then
     echo ""
@@ -181,31 +219,52 @@ SOURCE_FILES=$(echo "$FILES" | grep -E '\.(c|cpp|cc|cxx)$' || true)
 if [ -z "$SOURCE_FILES" ]; then
     print_info "No source files to analyze (headers only)"
 else
-    for file in $SOURCE_FILES; do
-        # Run clang-tidy
-        OUTPUT=$(clang-tidy \
-            --config-file="$PROJECT_ROOT/.clang-tidy" \
-            "$file" \
-            -- \
-            -I"$TARGET_DIR" \
-            -I"$PROJECT_ROOT" \
-            2>&1 || true)
+    # Run clang-tidy across all cores; each worker stores its verdict and the
+    # excerpt of diagnostics in a numbered file so the report stays ordered.
+    TIDY_TMP=$(mktemp -d)
+    trap 'rm -rf "$TIDY_TMP"' EXIT
 
-        # Check for errors (Critical)
-        if echo "$OUTPUT" | grep -q "error:"; then
+    export TIDY_TMP
+    export CT_CONFIG="$PROJECT_ROOT/.clang-tidy"
+    export CT_TARGET_DIR="$TARGET_DIR"
+    export CT_PROJECT_ROOT="$PROJECT_ROOT"
+
+    printf '%s\n' "$SOURCE_FILES" | nl -b a -w 1 -s ' ' | \
+        xargs -P "$JOBS" -I {} sh -c '
+            idx=${1%% *}
+            file=${1#* }
+            output=$(clang-tidy \
+                --config-file="$CT_CONFIG" \
+                "$file" \
+                -- \
+                -I"$CT_TARGET_DIR" \
+                -I"$CT_PROJECT_ROOT" \
+                2>&1 || true)
+            if printf "%s\n" "$output" | grep -q "error:"; then
+                { echo FAIL
+                  printf "%s\n" "$output" | grep "error:" | head -3 | sed "s/^/    /"
+                } > "$TIDY_TMP/$idx"
+            elif printf "%s\n" "$output" | grep -q "warning:"; then
+                { echo WARN
+                  printf "%s\n" "$output" | grep "warning:" | head -3 | sed "s/^/    /"
+                } > "$TIDY_TMP/$idx"
+            else
+                echo PASS > "$TIDY_TMP/$idx"
+            fi' _ {} || true
+
+    mapfile -t TIDY_FILES <<< "$SOURCE_FILES"
+    for i in "${!TIDY_FILES[@]}"; do
+        file="${TIDY_FILES[$i]}"
+        result_file="$TIDY_TMP/$((i + 1))"
+        [ -f "$result_file" ] || continue
+        status=$(head -n 1 "$result_file")
+        if [ "$status" = "FAIL" ]; then
             print_fail "$file (critical issues)"
-            # Show first few errors
-            echo "$OUTPUT" | grep "error:" | head -3 | while read -r line; do
-                echo "    $line"
-            done
+            tail -n +2 "$result_file"
             TIDY_ERRORS=$((TIDY_ERRORS + 1))
-        # Check for warnings (Major/Minor)
-        elif echo "$OUTPUT" | grep -q "warning:"; then
+        elif [ "$status" = "WARN" ]; then
             print_warn "$file (warnings)"
-            # Show first few warnings
-            echo "$OUTPUT" | grep "warning:" | head -3 | while read -r line; do
-                echo "    $line"
-            done
+            tail -n +2 "$result_file"
             TIDY_WARNINGS=$((TIDY_WARNINGS + 1))
         else
             print_pass "$file"
