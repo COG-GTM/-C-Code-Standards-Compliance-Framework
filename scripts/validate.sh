@@ -90,6 +90,16 @@ print_info() {
     echo -e "${BLUE}ℹ INFO${NC}: $1"
 }
 
+# Make a path safe to pass as a tool operand: a leading "-" would otherwise be
+# parsed as an option by clang-format/clang-tidy (clang-tidy has no "--" guard
+# for its source operand, since "--" introduces compiler arguments).
+safe_path() {
+    case $1 in
+        -*) printf './%s' "$1" ;;
+        *)  printf '%s' "$1" ;;
+    esac
+}
+
 # -----------------------------------------------------------------------------
 # Main Script
 # -----------------------------------------------------------------------------
@@ -102,7 +112,12 @@ echo "  Fix mode: $FIX_MODE"
 echo "  Project root: $PROJECT_ROOT"
 
 # Find C/C++ files
-FILES=$(find "$TARGET_DIR" -type f \( \
+# NUL-delimited so filenames containing whitespace or newlines are never
+# word-split into extra (possibly option-looking) arguments.
+FILES=()
+while IFS= read -r -d '' file; do
+    FILES+=("$file")
+done < <(find "$TARGET_DIR" -type f \( \
     -name "*.c" -o \
     -name "*.cpp" -o \
     -name "*.cc" -o \
@@ -115,14 +130,14 @@ FILES=$(find "$TARGET_DIR" -type f \( \
     ! -path "*/.git/*" \
     ! -path "*/third_party/*" \
     ! -path "*/vendor/*" \
-    2>/dev/null || true)
+    -print0 2>/dev/null)
 
-if [ -z "$FILES" ]; then
+if [ ${#FILES[@]} -eq 0 ]; then
     print_warn "No C/C++ files found in $TARGET_DIR"
     exit 0
 fi
 
-FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
+FILE_COUNT=${#FILES[@]}
 print_info "Found $FILE_COUNT file(s) to check"
 
 # Track errors
@@ -136,11 +151,12 @@ TIDY_WARNINGS=0
 
 print_section "clang-format check"
 
-for file in $FILES; do
+for file in "${FILES[@]}"; do
+    file_arg=$(safe_path "$file")
     if $FIX_MODE; then
         # Apply formatting fixes
-        if clang-format -i --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format -i "$file" 2>/dev/null; then
+        if clang-format -i --style=file:"$PROJECT_ROOT/.clang-format" -- "$file_arg" 2>/dev/null || \
+           clang-format -i -- "$file_arg" 2>/dev/null; then
             print_pass "Formatted: $file"
         else
             print_fail "Could not format: $file"
@@ -148,8 +164,8 @@ for file in $FILES; do
         fi
     else
         # Check only (dry run)
-        if clang-format --dry-run --Werror --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format --dry-run --Werror "$file" 2>/dev/null; then
+        if clang-format --dry-run --Werror --style=file:"$PROJECT_ROOT/.clang-format" -- "$file_arg" 2>/dev/null || \
+           clang-format --dry-run --Werror -- "$file_arg" 2>/dev/null; then
             print_pass "$file"
         else
             print_fail "$file (needs formatting)"
@@ -176,16 +192,22 @@ fi
 print_section "clang-tidy analysis"
 
 # Only analyze source files (not headers)
-SOURCE_FILES=$(echo "$FILES" | grep -E '\.(c|cpp|cc|cxx)$' || true)
+SOURCE_FILES=()
+for file in "${FILES[@]}"; do
+    case $file in
+        *.c|*.cpp|*.cc|*.cxx) SOURCE_FILES+=("$file") ;;
+    esac
+done
 
-if [ -z "$SOURCE_FILES" ]; then
+if [ ${#SOURCE_FILES[@]} -eq 0 ]; then
     print_info "No source files to analyze (headers only)"
 else
-    for file in $SOURCE_FILES; do
+    for file in "${SOURCE_FILES[@]}"; do
+        file_arg=$(safe_path "$file")
         # Run clang-tidy
         OUTPUT=$(clang-tidy \
             --config-file="$PROJECT_ROOT/.clang-tidy" \
-            "$file" \
+            "$file_arg" \
             -- \
             -I"$TARGET_DIR" \
             -I"$PROJECT_ROOT" \
