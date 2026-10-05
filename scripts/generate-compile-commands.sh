@@ -111,8 +111,17 @@ generate_with_bear() {
 generate_manually() {
     print_info "Generating compile_commands.json manually..."
     
-    # Find all C/C++ source files
-    FILES=$(find . -type f \( \
+    # Find all C/C++ source files (NUL-delimited: never word-split filenames)
+    FILES=()
+    while IFS= read -r -d '' file; do
+        # Names with quotes, backslashes or control characters would break out
+        # of the JSON string below and inject compiler arguments; skip them.
+        if [[ "$file" == *[\"\\]* || "$file" == *[[:cntrl:]]* ]]; then
+            print_warn "Skipping file with unsafe name: $(printf '%q' "$file")"
+            continue
+        fi
+        FILES+=("$file")
+    done < <(find . -type f \( \
         -name "*.c" -o \
         -name "*.cpp" -o \
         -name "*.cc" -o \
@@ -122,9 +131,9 @@ generate_manually() {
         ! -path "*/.git/*" \
         ! -path "*/third_party/*" \
         ! -path "*/vendor/*" \
-        2>/dev/null || true)
+        -print0 2>/dev/null)
     
-    if [ -z "$FILES" ]; then
+    if [ ${#FILES[@]} -eq 0 ]; then
         print_warn "No C/C++ source files found"
         return 1
     fi
@@ -142,17 +151,18 @@ generate_manually() {
     fi
     
     # Build include flags
-    INCLUDE_FLAGS="-I. -I./include -I./src"
+    INCLUDE_FLAGS=(-I. -I./include -I./src)
     
     # Check for common include directories
-    [ -d "inc" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS -I./inc"
-    [ -d "includes" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS -I./includes"
+    [ -d "inc" ] && INCLUDE_FLAGS+=(-I./inc)
+    [ -d "includes" ] && INCLUDE_FLAGS+=(-I./includes)
+    INCLUDE_JSON=$(printf '"%s", ' "${INCLUDE_FLAGS[@]}")
     
     # Start JSON array
     echo "[" > compile_commands.json
     
     FIRST=true
-    for file in $FILES; do
+    for file in "${FILES[@]}"; do
         # Get absolute path
         ABS_FILE="$CURRENT_DIR/${file#./}"
         
@@ -181,7 +191,7 @@ generate_manually() {
       "$STD",
       "-Wall",
       "-Wextra",
-      $INCLUDE_FLAGS
+      $INCLUDE_JSON
       "$ABS_FILE",
       "-o",
       "${ABS_FILE%.c*}.o"
@@ -193,10 +203,7 @@ EOF
     echo "" >> compile_commands.json
     echo "]" >> compile_commands.json
     
-    # Fix the include flags formatting (they need to be separate array elements)
-    # This is a simplified version - proper JSON would split each -I flag
-    
-    FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
+    FILE_COUNT=${#FILES[@]}
     print_success "Generated compile_commands.json with $FILE_COUNT entries"
     return 0
 }
