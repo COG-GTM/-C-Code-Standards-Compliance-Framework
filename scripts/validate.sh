@@ -136,11 +136,60 @@ TIDY_WARNINGS=0
 
 print_section "clang-format check"
 
+# Always enforce the project style. Never fall back to clang-format's own
+# style discovery: it would honour a .clang-format placed in the target tree
+# (or LLVM defaults), letting code that violates the project style pass.
+PROJECT_STYLE="$PROJECT_ROOT/.clang-format"
+if [ ! -f "$PROJECT_STYLE" ]; then
+    print_fail "Project style file not found: $PROJECT_STYLE"
+    exit 1
+fi
+
+# --style=file:<path> needs clang-format 14+. Probe once; on older versions
+# feed the file on stdin with --assume-filename inside PROJECT_ROOT so the
+# style lookup resolves to the project .clang-format.
+if clang-format --style=file:"$PROJECT_STYLE" --dump-config >/dev/null 2>&1; then
+    CF_STYLE_FILE_PATH=true
+else
+    CF_STYLE_FILE_PATH=false
+    print_info "clang-format lacks --style=file:<path>; using project style via --assume-filename"
+fi
+
+cf_assume_name() {
+    echo "$PROJECT_ROOT/$(basename "$1")"
+}
+
+cf_check() {
+    if $CF_STYLE_FILE_PATH; then
+        clang-format --dry-run --Werror --style=file:"$PROJECT_STYLE" "$1"
+    else
+        clang-format --dry-run --Werror --style=file \
+            --assume-filename="$(cf_assume_name "$1")" < "$1"
+    fi
+}
+
+cf_fix() {
+    if $CF_STYLE_FILE_PATH; then
+        clang-format -i --style=file:"$PROJECT_STYLE" "$1"
+    else
+        local tmp rc
+        tmp=$(mktemp) || return 1
+        if clang-format --style=file --assume-filename="$(cf_assume_name "$1")" \
+            < "$1" > "$tmp"; then
+            cat "$tmp" > "$1"
+            rc=$?
+        else
+            rc=1
+        fi
+        rm -f "$tmp"
+        return $rc
+    fi
+}
+
 for file in $FILES; do
     if $FIX_MODE; then
         # Apply formatting fixes
-        if clang-format -i --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format -i "$file" 2>/dev/null; then
+        if cf_fix "$file" 2>/dev/null; then
             print_pass "Formatted: $file"
         else
             print_fail "Could not format: $file"
@@ -148,8 +197,7 @@ for file in $FILES; do
         fi
     else
         # Check only (dry run)
-        if clang-format --dry-run --Werror --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format --dry-run --Werror "$file" 2>/dev/null; then
+        if cf_check "$file" 2>/dev/null; then
             print_pass "$file"
         else
             print_fail "$file (needs formatting)"
