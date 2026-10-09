@@ -13,6 +13,8 @@
 #   1 - Format violations found (Critical for CI)
 #   2 - clang-tidy violations found
 #   3 - Both format and tidy violations found
+#   4 - Tooling error (clang-format/clang-tidy missing, clang-tidy older
+#       than MIN_CLANG_TIDY_MAJOR, or .clang-tidy rejected by clang-tidy)
 #
 # Examples:
 #   ./scripts/validate.sh                    # Check current directory
@@ -38,6 +40,9 @@ NC='\033[0m' # No Color
 # Find script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+MIN_CLANG_TIDY_MAJOR=14
+TOOL_ERROR_EXIT=4
 
 # Parse arguments
 TARGET_DIR="."
@@ -90,6 +95,41 @@ print_info() {
     echo -e "${BLUE}ℹ INFO${NC}: $1"
 }
 
+tool_error() {
+    print_fail "$1"
+    echo -e "${RED}${BOLD}✗ Validation could not run (exit code: $TOOL_ERROR_EXIT)${NC}"
+    exit $TOOL_ERROR_EXIT
+}
+
+# Fail closed if the analysis tooling cannot actually analyze code.
+check_tooling() {
+    local tool
+    for tool in clang-format clang-tidy; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            tool_error "$tool not found on PATH"
+        fi
+    done
+
+    local version_output major
+    version_output=$(clang-tidy --version 2>&1) || \
+        tool_error "clang-tidy --version failed: $version_output"
+    major=$(echo "$version_output" | sed -n 's/.*version \([0-9][0-9]*\)\..*/\1/p' | head -1)
+    if [ -z "$major" ]; then
+        tool_error "Could not determine clang-tidy version from: $version_output"
+    fi
+    if [ "$major" -lt "$MIN_CLANG_TIDY_MAJOR" ]; then
+        tool_error "clang-tidy $major found; version $MIN_CLANG_TIDY_MAJOR or newer is required"
+    fi
+
+    local config_output
+    if ! config_output=$(clang-tidy --config-file="$PROJECT_ROOT/.clang-tidy" --dump-config 2>&1); then
+        echo "$config_output" | head -5 | while read -r line; do
+            echo "    $line"
+        done
+        tool_error "clang-tidy rejected $PROJECT_ROOT/.clang-tidy"
+    fi
+}
+
 # -----------------------------------------------------------------------------
 # Main Script
 # -----------------------------------------------------------------------------
@@ -100,6 +140,8 @@ echo "Configuration:"
 echo "  Target directory: $TARGET_DIR"
 echo "  Fix mode: $FIX_MODE"
 echo "  Project root: $PROJECT_ROOT"
+
+check_tooling
 
 # Find C/C++ files
 FILES=$(find "$TARGET_DIR" -type f \( \
@@ -182,20 +224,28 @@ if [ -z "$SOURCE_FILES" ]; then
     print_info "No source files to analyze (headers only)"
 else
     for file in $SOURCE_FILES; do
-        # Run clang-tidy
+        # Run clang-tidy; a non-zero exit status is never treated as a pass
+        TIDY_STATUS=0
         OUTPUT=$(clang-tidy \
             --config-file="$PROJECT_ROOT/.clang-tidy" \
             "$file" \
             -- \
             -I"$TARGET_DIR" \
             -I"$PROJECT_ROOT" \
-            2>&1 || true)
+            2>&1) || TIDY_STATUS=$?
 
         # Check for errors (Critical)
         if echo "$OUTPUT" | grep -q "error:"; then
             print_fail "$file (critical issues)"
             # Show first few errors
             echo "$OUTPUT" | grep "error:" | head -3 | while read -r line; do
+                echo "    $line"
+            done
+            TIDY_ERRORS=$((TIDY_ERRORS + 1))
+        # clang-tidy failed without reporting a diagnostic (crash, bad config, ...)
+        elif [ "$TIDY_STATUS" -ne 0 ]; then
+            print_fail "$file (clang-tidy exited with status $TIDY_STATUS)"
+            echo "$OUTPUT" | tail -3 | while read -r line; do
                 echo "    $line"
             done
             TIDY_ERRORS=$((TIDY_ERRORS + 1))
