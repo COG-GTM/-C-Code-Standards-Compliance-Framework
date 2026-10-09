@@ -172,17 +172,19 @@ cf_fix() {
     if $CF_STYLE_FILE_PATH; then
         clang-format -i --style=file:"$PROJECT_STYLE" "$1"
     else
-        local tmp rc
-        tmp=$(mktemp) || return 1
-        if clang-format --style=file --assume-filename="$(cf_assume_name "$1")" \
-            < "$1" > "$tmp"; then
-            cat "$tmp" > "$1"
-            rc=$?
-        else
-            rc=1
+        # Format into a sibling temp file (cp -p keeps the mode) and rename it
+        # over the source only after clang-format succeeded, so a failure or
+        # interruption never leaves the source truncated.
+        local tmp
+        tmp=$(mktemp "$1.cf-XXXXXX") || return 1
+        if cp -p "$1" "$tmp" && \
+           clang-format --style=file --assume-filename="$(cf_assume_name "$1")" \
+            < "$1" > "$tmp" && \
+           mv -f "$tmp" "$1"; then
+            return 0
         fi
         rm -f "$tmp"
-        return $rc
+        return 1
     fi
 }
 
