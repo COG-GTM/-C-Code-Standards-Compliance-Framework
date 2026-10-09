@@ -112,3 +112,39 @@ def test_fix_applies_project_style_not_planted_style(target_tree, pre14_path, us
     run_validate(target_tree, "--fix", path=pre14_path if use_pre14 else None)
 
     assert source.read_text() == PROJECT_STYLE_SOURCE
+
+
+def test_pre14_fix_failure_leaves_source_intact(target_tree, tmp_path):
+    """A clang-format failure during legacy --fix must not truncate the source."""
+    bin_dir = tmp_path / "failbin"
+    bin_dir.mkdir()
+    stub = bin_dir / "clang-format"
+    stub.write_text(
+        "#!/bin/bash\n"
+        'for a in "$@"; do case "$a" in --style=file:*) exit 1;; esac; done\n'
+        'echo "int partial" ; exit 1\n'
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+    source = target_tree / "llvm.c"
+    source.write_text(LLVM_STYLE_SOURCE)
+    source.chmod(0o640)
+
+    result = run_validate(
+        target_tree, "--fix", path=f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
+    )
+
+    assert "Could not format" in result.stdout
+    assert source.read_text() == LLVM_STYLE_SOURCE
+    assert sorted(p.name for p in target_tree.iterdir()) == [".clang-format", "llvm.c"]
+
+
+def test_pre14_fix_preserves_mode(target_tree, pre14_path):
+    source = target_tree / "llvm.c"
+    source.write_text(LLVM_STYLE_SOURCE)
+    source.chmod(0o640)
+
+    run_validate(target_tree, "--fix", path=pre14_path)
+
+    assert source.read_text() == PROJECT_STYLE_SOURCE
+    assert stat.S_IMODE(source.stat().st_mode) == 0o640
+    assert sorted(p.name for p in target_tree.iterdir()) == [".clang-format", "llvm.c"]
