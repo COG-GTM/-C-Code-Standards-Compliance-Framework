@@ -106,13 +106,54 @@ generate_with_bear() {
 }
 
 # -----------------------------------------------------------------------------
+# JSON writer
+# -----------------------------------------------------------------------------
+# Reads NUL-delimited source paths (relative to the current directory) on
+# stdin and writes compile_commands.json with a real JSON serializer, so a
+# filename can never close a JSON string or add array elements.
+#   argv: <directory> <compiler> <include flag>...
+read -r -d '' JSON_WRITER << 'PY' || true
+import json
+import os
+import sys
+
+directory, compiler, include_flags = sys.argv[1], sys.argv[2], sys.argv[3:]
+entries = []
+for raw in sys.stdin.buffer.read().split(b"\0"):
+    if not raw:
+        continue
+    rel = os.fsdecode(raw)
+    if rel.startswith("./"):
+        rel = rel[2:]
+    abs_file = os.path.join(directory, rel)
+    std = "-std=c17" if abs_file.endswith(".c") else "-std=c++17"
+    output = os.path.splitext(abs_file)[0] + ".o"
+    entries.append({
+        "directory": directory,
+        "file": abs_file,
+        "arguments": [compiler, "-c", std, "-Wall", "-Wextra"]
+        + include_flags + [abs_file, "-o", output],
+    })
+
+with open("compile_commands.json", "w", encoding="utf-8",
+          errors="surrogateescape") as out:
+    json.dump(entries, out, indent=2)
+    out.write("\n")
+print(len(entries))
+PY
+
+require_python() {
+    if ! command -v python3 &> /dev/null; then
+        print_error "python3 is required to write compile_commands.json"
+        return 1
+    fi
+}
+
+# -----------------------------------------------------------------------------
 # Method 3: Manual generation
 # -----------------------------------------------------------------------------
-generate_manually() {
-    print_info "Generating compile_commands.json manually..."
-    
-    # Find all C/C++ source files
-    FILES=$(find . -type f \( \
+find_sources() {
+    find . -type f \( \
         -name "*.c" -o \
         -name "*.cpp" -o \
         -name "*.cc" -o \
@@ -122,9 +163,16 @@ generate_manually() {
         ! -path "*/.git/*" \
         ! -path "*/third_party/*" \
         ! -path "*/vendor/*" \
-        2>/dev/null || true)
+        -print0 2>/dev/null || true
+}
+
+generate_manually() {
+    print_info "Generating compile_commands.json manually..."
     
-    if [ -z "$FILES" ]; then
+    require_python || return 1
+    
+    # Find all C/C++ source files (NUL-delimited, never word-split)
+    if [ "$(find_sources | head -c 1 | wc -c)" -eq 0 ]; then
         print_warn "No C/C++ source files found"
         return 1
     fi
@@ -141,62 +189,19 @@ generate_manually() {
         COMPILER="cc"
     fi
     
-    # Build include flags
-    INCLUDE_FLAGS="-I. -I./include -I./src"
+    # Build include flags (one JSON string each)
+    INCLUDE_FLAGS=(-I. -I./include -I./src)
     
     # Check for common include directories
-    [ -d "inc" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS -I./inc"
-    [ -d "includes" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS -I./includes"
+    [ -d "inc" ] && INCLUDE_FLAGS+=(-I./inc)
+    [ -d "includes" ] && INCLUDE_FLAGS+=(-I./includes)
     
-    # Start JSON array
-    echo "[" > compile_commands.json
+    if ! FILE_COUNT=$(find_sources | python3 -c "$JSON_WRITER" \
+            "$CURRENT_DIR" "$COMPILER" "${INCLUDE_FLAGS[@]}"); then
+        print_error "Failed to write compile_commands.json"
+        return 1
+    fi
     
-    FIRST=true
-    for file in $FILES; do
-        # Get absolute path
-        ABS_FILE="$CURRENT_DIR/${file#./}"
-        
-        # Determine language standard
-        if [[ "$file" == *.c ]]; then
-            STD="-std=c17"
-        else
-            STD="-std=c++17"
-        fi
-        
-        # Add comma separator (except for first entry)
-        if [ "$FIRST" = true ]; then
-            FIRST=false
-        else
-            echo "," >> compile_commands.json
-        fi
-        
-        # Write entry
-        cat >> compile_commands.json << EOF
-  {
-    "directory": "$CURRENT_DIR",
-    "file": "$ABS_FILE",
-    "arguments": [
-      "$COMPILER",
-      "-c",
-      "$STD",
-      "-Wall",
-      "-Wextra",
-      $INCLUDE_FLAGS
-      "$ABS_FILE",
-      "-o",
-      "${ABS_FILE%.c*}.o"
-    ]
-  }
-EOF
-    done
-    
-    echo "" >> compile_commands.json
-    echo "]" >> compile_commands.json
-    
-    # Fix the include flags formatting (they need to be separate array elements)
-    # This is a simplified version - proper JSON would split each -I flag
-    
-    FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
     print_success "Generated compile_commands.json with $FILE_COUNT entries"
     return 0
 }
@@ -207,29 +212,12 @@ EOF
 create_template() {
     print_info "Creating minimal compile_commands.json template..."
     
+    require_python || return 1
+    
     CURRENT_DIR=$(pwd)
     
-    cat > compile_commands.json << EOF
-[
-  {
-    "directory": "$CURRENT_DIR",
-    "file": "$CURRENT_DIR/src/main.c",
-    "arguments": [
-      "clang",
-      "-c",
-      "-std=c17",
-      "-Wall",
-      "-Wextra",
-      "-I.",
-      "-I./include",
-      "-I./src",
-      "$CURRENT_DIR/src/main.c",
-      "-o",
-      "$CURRENT_DIR/build/main.o"
-    ]
-  }
-]
-EOF
+    printf './src/main.c\0' | python3 -c "$JSON_WRITER" \
+        "$CURRENT_DIR" clang -I. -I./include -I./src > /dev/null
     
     print_success "Created template compile_commands.json"
     print_warn "Edit this file to match your project structure"
