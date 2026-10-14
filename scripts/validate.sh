@@ -8,6 +8,9 @@
 #   directory   Target directory to validate (default: current directory)
 #   --fix       Apply automatic fixes (formatting only)
 #
+# Environment:
+#   VALIDATE_JOBS  Parallel clang-tidy jobs (default: number of CPUs)
+#
 # Exit codes:
 #   0 - All checks passed
 #   1 - Format violations found (Critical for CI)
@@ -38,6 +41,12 @@ NC='\033[0m' # No Color
 # Find script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Parallel clang-tidy jobs (override with VALIDATE_JOBS)
+TIDY_JOBS="${VALIDATE_JOBS:-$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
+if ! [[ "$TIDY_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    TIDY_JOBS=1
+fi
 
 # Parse arguments
 TARGET_DIR="."
@@ -100,6 +109,7 @@ echo "Configuration:"
 echo "  Target directory: $TARGET_DIR"
 echo "  Fix mode: $FIX_MODE"
 echo "  Project root: $PROJECT_ROOT"
+echo "  clang-tidy jobs: $TIDY_JOBS"
 
 # Find C/C++ files
 FILES=$(find "$TARGET_DIR" -type f \( \
@@ -181,15 +191,30 @@ SOURCE_FILES=$(echo "$FILES" | grep -E '\.(c|cpp|cc|cxx)$' || true)
 if [ -z "$SOURCE_FILES" ]; then
     print_info "No source files to analyze (headers only)"
 else
+    # Run clang-tidy on all source files in parallel; each worker writes its
+    # output to $TIDY_TMP/<index>, which is then reported in file order.
+    TIDY_TMP=$(mktemp -d "${TMPDIR:-/tmp}/validate-tidy.XXXXXX")
+    trap 'rm -rf "$TIDY_TMP"' EXIT
+    export PROJECT_ROOT TARGET_DIR TIDY_TMP
+
+    i=0
     for file in $SOURCE_FILES; do
-        # Run clang-tidy
-        OUTPUT=$(clang-tidy \
+        i=$((i + 1))
+        printf '%s\0%s\0' "$i" "$file"
+    done | xargs -0 -n 2 -P "$TIDY_JOBS" bash -c '
+        clang-tidy \
             --config-file="$PROJECT_ROOT/.clang-tidy" \
-            "$file" \
+            "$2" \
             -- \
             -I"$TARGET_DIR" \
             -I"$PROJECT_ROOT" \
-            2>&1 || true)
+            >"$TIDY_TMP/$1" 2>&1 || true
+    ' _
+
+    i=0
+    for file in $SOURCE_FILES; do
+        i=$((i + 1))
+        OUTPUT=$(cat "$TIDY_TMP/$i" 2>/dev/null || true)
 
         # Check for errors (Critical)
         if echo "$OUTPUT" | grep -q "error:"; then
