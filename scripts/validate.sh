@@ -202,19 +202,27 @@ else
         i=$((i + 1))
         printf '%s\0%s\0' "$i" "$file"
     done | xargs -0 -n 2 -P "$TIDY_JOBS" bash -c '
-        clang-tidy \
+        out=$(clang-tidy \
             --config-file="$PROJECT_ROOT/.clang-tidy" \
             "$2" \
             -- \
             -I"$TARGET_DIR" \
             -I"$PROJECT_ROOT" \
-            >"$TIDY_TMP/$1" 2>&1 || true
-    ' _
+            2>&1 || true)
+        # The .ok marker is only written once the output is fully stored.
+        printf "%s\n" "$out" >"$TIDY_TMP/$1" && : >"$TIDY_TMP/$1.ok"
+    ' _ || true
 
     i=0
     for file in $SOURCE_FILES; do
         i=$((i + 1))
-        OUTPUT=$(cat "$TIDY_TMP/$i" 2>/dev/null || true)
+
+        # Fail closed if the worker's output was not captured
+        if [ ! -f "$TIDY_TMP/$i.ok" ] || ! OUTPUT=$(cat "$TIDY_TMP/$i"); then
+            print_fail "$file (clang-tidy output could not be captured)"
+            TIDY_ERRORS=$((TIDY_ERRORS + 1))
+            continue
+        fi
 
         # Check for errors (Critical)
         if echo "$OUTPUT" | grep -q "error:"; then
