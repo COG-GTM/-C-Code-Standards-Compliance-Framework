@@ -136,20 +136,74 @@ TIDY_WARNINGS=0
 
 print_section "clang-format check"
 
+# Resolve the style argument once instead of retrying every file: clang-format
+# < 14 does not understand --style=file:<path> and falls back to discovery.
+CF_STYLE_ARG="--style=file:$PROJECT_ROOT/.clang-format"
+if ! clang-format "$CF_STYLE_ARG" --dump-config >/dev/null 2>&1; then
+    CF_STYLE_ARG=""
+fi
+
+JOBS="${VALIDATE_JOBS:-$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
+if ! [[ "$JOBS" =~ ^[0-9]+$ ]] || [ "$JOBS" -lt 1 ]; then
+    JOBS=1
+fi
+FORMAT_BATCH=$(( (FILE_COUNT + JOBS - 1) / JOBS ))
+if [ "$FORMAT_BATCH" -gt 64 ]; then
+    FORMAT_BATCH=64
+elif [ "$FORMAT_BATCH" -lt 1 ]; then
+    FORMAT_BATCH=1
+fi
+
+# Runs one clang-format process for a batch of files and emits a
+# "PASS|FAIL<TAB>file" NUL-terminated record per file. If the batch fails,
+# its files are re-run individually so each result stays per-file.
+format_batch() {
+    local mode_args=(--dry-run --Werror)
+    if [ "$CF_FIX_MODE" = true ]; then
+        mode_args=(-i)
+    fi
+    local style_args=()
+    if [ -n "$CF_STYLE_ARG" ]; then
+        style_args=("$CF_STYLE_ARG")
+    fi
+
+    local f status
+    if clang-format "${mode_args[@]}" "${style_args[@]}" "$@" 2>/dev/null; then
+        for f in "$@"; do
+            printf 'PASS\t%s\0' "$f"
+        done
+        return 0
+    fi
+    [ "$#" -eq 1 ] && { printf 'FAIL\t%s\0' "$1"; return 0; }
+    for f in "$@"; do
+        status=FAIL
+        if clang-format "${mode_args[@]}" "${style_args[@]}" "$f" 2>/dev/null; then
+            status=PASS
+        fi
+        printf '%s\t%s\0' "$status" "$f"
+    done
+    return 0
+}
+export -f format_batch
+export CF_STYLE_ARG
+export CF_FIX_MODE="$FIX_MODE"
+
+declare -A FORMAT_STATUS=()
+while IFS=$'\t' read -r -d '' status file; do
+    FORMAT_STATUS["$file"]="$status"
+done < <(for file in $FILES; do printf '%s\0' "$file"; done | \
+    xargs -0 -n "$FORMAT_BATCH" -P "$JOBS" bash -c 'format_batch "$@"' _)
+
 for file in $FILES; do
     if $FIX_MODE; then
-        # Apply formatting fixes
-        if clang-format -i --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format -i "$file" 2>/dev/null; then
+        if [ "${FORMAT_STATUS[$file]:-FAIL}" = PASS ]; then
             print_pass "Formatted: $file"
         else
             print_fail "Could not format: $file"
             FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
         fi
     else
-        # Check only (dry run)
-        if clang-format --dry-run --Werror --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format --dry-run --Werror "$file" 2>/dev/null; then
+        if [ "${FORMAT_STATUS[$file]:-FAIL}" = PASS ]; then
             print_pass "$file"
         else
             print_fail "$file (needs formatting)"
