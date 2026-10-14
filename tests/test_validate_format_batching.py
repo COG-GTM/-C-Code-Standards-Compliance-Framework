@@ -157,3 +157,23 @@ def test_fix_mode_reports_unformattable_file(tmp_path, stub_env):
     assert section.count("PASS: Formatted:") == 10
     assert "1 file(s) have formatting issues" in section
     assert rc == 1
+
+
+@pytest.mark.parametrize("jobs", ["08", "0", "abc", "99999"])
+def test_unusual_job_counts_still_validate(tmp_path, stub_env, jobs):
+    env, _ = stub_env
+    env["VALIDATE_JOBS"] = jobs
+    names = _make_tree(tmp_path, good=9, bad=1)
+
+    rc, out = _run(env, tmp_path / "src")
+    section = _format_section(out)
+
+    assert len(re.findall(r"(?:PASS|FAIL): /", section)) == len(names)
+    assert "1 file(s) have formatting issues" in section
+    assert rc == 1
+
+
+def test_format_step_avoids_bash4_only_features():
+    script = VALIDATE.read_text()
+    assert "declare -A" not in script
+    assert "mapfile" not in script and "readarray" not in script
