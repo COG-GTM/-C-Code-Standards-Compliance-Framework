@@ -136,20 +136,94 @@ TIDY_WARNINGS=0
 
 print_section "clang-format check"
 
+# Resolve the style argument once instead of retrying every file: clang-format
+# < 14 does not understand --style=file:<path> and falls back to discovery.
+CF_STYLE_ARG="--style=file:$PROJECT_ROOT/.clang-format"
+if ! clang-format "$CF_STYLE_ARG" --dump-config >/dev/null 2>&1; then
+    CF_STYLE_ARG=""
+fi
+
+JOBS="${VALIDATE_JOBS:-$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
+if [[ "$JOBS" =~ ^[0-9]{1,4}$ ]]; then
+    JOBS=$((10#$JOBS))
+else
+    JOBS=1
+fi
+if [ "$JOBS" -lt 1 ]; then
+    JOBS=1
+fi
+FORMAT_BATCH=$(( (FILE_COUNT + JOBS - 1) / JOBS ))
+if [ "$FORMAT_BATCH" -gt 64 ]; then
+    FORMAT_BATCH=64
+elif [ "$FORMAT_BATCH" -lt 1 ]; then
+    FORMAT_BATCH=1
+fi
+
+# Takes "index file" argument pairs, runs one clang-format process for the
+# batch and emits a NUL-terminated "index<TAB>PASS|FAIL" record per file. If
+# the batch fails, its files are re-run individually so each result stays
+# per-file. Bash 3.2 compatible (no associative arrays).
+format_batch() {
+    local mode_args=(--dry-run --Werror)
+    if [ "$CF_FIX_MODE" = true ]; then
+        mode_args=(-i)
+    fi
+    local style_args=()
+    if [ -n "$CF_STYLE_ARG" ]; then
+        style_args=("$CF_STYLE_ARG")
+    fi
+
+    local idx=() files=() i status
+    while [ "$#" -ge 2 ]; do
+        idx+=("$1")
+        files+=("$2")
+        shift 2
+    done
+
+    if clang-format "${mode_args[@]}" "${style_args[@]}" "${files[@]}" 2>/dev/null; then
+        for i in "${idx[@]}"; do
+            printf '%s\tPASS\0' "$i"
+        done
+        return 0
+    fi
+    if [ "${#files[@]}" -eq 1 ]; then
+        printf '%s\tFAIL\0' "${idx[0]}"
+        return 0
+    fi
+    for i in "${!files[@]}"; do
+        status=FAIL
+        if clang-format "${mode_args[@]}" "${style_args[@]}" "${files[$i]}" 2>/dev/null; then
+            status=PASS
+        fi
+        printf '%s\t%s\0' "${idx[$i]}" "$status"
+    done
+    return 0
+}
+export -f format_batch
+export CF_STYLE_ARG
+export CF_FIX_MODE="$FIX_MODE"
+
+FORMAT_STATUS=()
+while IFS=$'\t' read -r -d '' index status; do
+    FORMAT_STATUS[index]="$status"
+done < <(index=0; for file in $FILES; do
+        printf '%s\0%s\0' "$index" "$file"
+        index=$((index + 1))
+    done | xargs -0 -n $((FORMAT_BATCH * 2)) -P "$JOBS" bash -c 'format_batch "$@"' _)
+
+index=0
 for file in $FILES; do
+    status="${FORMAT_STATUS[index]:-FAIL}"
+    index=$((index + 1))
     if $FIX_MODE; then
-        # Apply formatting fixes
-        if clang-format -i --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format -i "$file" 2>/dev/null; then
+        if [ "$status" = PASS ]; then
             print_pass "Formatted: $file"
         else
             print_fail "Could not format: $file"
             FORMAT_ERRORS=$((FORMAT_ERRORS + 1))
         fi
     else
-        # Check only (dry run)
-        if clang-format --dry-run --Werror --style=file:"$PROJECT_ROOT/.clang-format" "$file" 2>/dev/null || \
-           clang-format --dry-run --Werror "$file" 2>/dev/null; then
+        if [ "$status" = PASS ]; then
             print_pass "$file"
         else
             print_fail "$file (needs formatting)"
