@@ -155,10 +155,11 @@ if [ "$FORMAT_BATCH" -gt 64 ]; then
     FORMAT_BATCH=64
 fi
 
-# Arguments: "index file" pairs. Formats/checks the whole batch with a single
-# clang-format process and prints a NUL-terminated "index<TAB>PASS|FAIL"
-# record per file. Only when the batch fails are its files re-run one by one,
-# so results stay per-file.
+# Arguments: "index<TAB>file" items (one argv entry each, so xargs' byte-limit
+# splitting can never separate a file from its index). Formats/checks the whole
+# batch with a single clang-format process and prints a NUL-terminated
+# "index<TAB>PASS|FAIL" record per file. Only when the batch fails are its
+# files re-run one by one, so results stay per-file.
 format_batch() {
     local mode_args=(--dry-run --Werror)
     if [ "$CF_FIX_MODE" = true ]; then
@@ -169,11 +170,10 @@ format_batch() {
         style_args=("$CF_STYLE_ARG")
     fi
 
-    local indexes=() files=() i status
-    while [ "$#" -ge 2 ]; do
-        indexes+=("$1")
-        files+=("$2")
-        shift 2
+    local indexes=() files=() item i status
+    for item in "$@"; do
+        indexes+=("${item%%$'\t'*}")
+        files+=("${item#*$'\t'}")
     done
 
     if clang-format "${mode_args[@]}" "${style_args[@]}" "${files[@]}" >/dev/null 2>&1; then
@@ -201,9 +201,9 @@ while IFS=$'\t' read -r -d '' index status; do
     FORMAT_STATUS[index]="$status"
 done < <(index=0
          for file in $FILES; do
-             printf '%s\0%s\0' "$index" "$file"
+             printf '%s\t%s\0' "$index" "$file"
              index=$((index + 1))
-         done | xargs -0 -n $((FORMAT_BATCH * 2)) -P "$FORMAT_JOBS" bash -c 'format_batch "$@"' _)
+         done | xargs -0 -n "$FORMAT_BATCH" -P "$FORMAT_JOBS" bash -c 'format_batch "$@"' _)
 
 # Report in discovery order; a missing record (crashed worker) counts as FAIL.
 index=0

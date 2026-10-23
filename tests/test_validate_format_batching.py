@@ -195,3 +195,21 @@ def test_real_fix_mode_matches_per_file_formatting(tmp_path):
 
     for f in sorted(reference.rglob("*.[ch]")):
         assert (batched / f.relative_to(reference)).read_text() == f.read_text()
+
+
+def test_long_paths_split_by_xargs_byte_limit_keep_pairing(tmp_path, stub_env):
+    env, _ = stub_env
+    deep = tmp_path
+    for _ in range(12):
+        deep = deep / ("d" * 200)
+    deep.mkdir(parents=True)
+    src = _make_tree(deep, 120, bad={7, 77})
+
+    code, out = _run(src, env, jobs="1")
+
+    assert code == 1
+    section = _format_section(out)
+    lines = [l for l in section.splitlines() if l.startswith(("✓", "✗"))]
+    assert len(lines) == 121
+    assert lines[-1] == "✗ FAIL: 2 file(s) have formatting issues"
+    assert sum("(needs formatting)" in l for l in lines) == 2
