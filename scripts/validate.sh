@@ -13,6 +13,8 @@
 #   1 - Format violations found (Critical for CI)
 #   2 - clang-tidy violations found
 #   3 - Both format and tidy violations found
+#   4 - Tooling error: clang-format/clang-tidy missing, .clang-tidy rejected,
+#       or clang-tidy produced no diagnostics on the known-bad probe file
 #
 # Examples:
 #   ./scripts/validate.sh                    # Check current directory
@@ -38,6 +40,10 @@ NC='\033[0m' # No Color
 # Find script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+TIDY_CONFIG="$PROJECT_ROOT/.clang-tidy"
+TIDY_PROBE="$PROJECT_ROOT/examples/violations.c"
+TOOL_ERROR_EXIT=4
 
 # Parse arguments
 TARGET_DIR="."
@@ -90,6 +96,49 @@ print_info() {
     echo -e "${BLUE}ℹ INFO${NC}: $1"
 }
 
+print_indented() {
+    while read -r line; do
+        echo "    $line"
+    done
+}
+
+tool_error() {
+    print_fail "$1"
+    echo ""
+    echo -e "${RED}${BOLD}✗ Validation could not run (exit code: $TOOL_ERROR_EXIT)${NC}"
+    exit $TOOL_ERROR_EXIT
+}
+
+# Fail closed: never report PASS unless the tooling can actually analyze code.
+check_tooling() {
+    local tool output status
+
+    for tool in clang-format clang-tidy; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            tool_error "$tool not found on PATH; install it before running validation"
+        fi
+    done
+
+    status=0
+    output=$(clang-tidy --config-file="$TIDY_CONFIG" --dump-config 2>&1) || status=$?
+    if [ "$status" -ne 0 ]; then
+        echo "$output" | head -5 | print_indented
+        tool_error "clang-tidy rejected $TIDY_CONFIG (exit status $status)"
+    fi
+
+    if [ ! -r "$TIDY_PROBE" ]; then
+        tool_error "clang-tidy probe file not found: $TIDY_PROBE"
+    fi
+    status=0
+    output=$(clang-tidy --config-file="$TIDY_CONFIG" "$TIDY_PROBE" -- \
+        -I"$PROJECT_ROOT" 2>&1) || status=$?
+    if [ "$status" -gt 1 ] || \
+       ! echo "$output" | grep -Eq '(error|warning): .* \[[[:alnum:]_.,-]+\]$'; then
+        echo "$output" | tail -5 | print_indented
+        tool_error "clang-tidy produced no diagnostics on known-bad probe $TIDY_PROBE (exit status $status)"
+    fi
+}
+
 # -----------------------------------------------------------------------------
 # Main Script
 # -----------------------------------------------------------------------------
@@ -100,6 +149,8 @@ echo "Configuration:"
 echo "  Target directory: $TARGET_DIR"
 echo "  Fix mode: $FIX_MODE"
 echo "  Project root: $PROJECT_ROOT"
+
+check_tooling
 
 # Find C/C++ files
 FILES=$(find "$TARGET_DIR" -type f \( \
@@ -182,22 +233,32 @@ if [ -z "$SOURCE_FILES" ]; then
     print_info "No source files to analyze (headers only)"
 else
     for file in $SOURCE_FILES; do
-        # Run clang-tidy
+        # Run clang-tidy, keeping its exit status: 0 = no errors, 1 = errors
+        # reported; anything else (127 not found, 128+N signal) is a failure.
+        TIDY_STATUS=0
         OUTPUT=$(clang-tidy \
-            --config-file="$PROJECT_ROOT/.clang-tidy" \
+            --config-file="$TIDY_CONFIG" \
             "$file" \
             -- \
             -I"$TARGET_DIR" \
             -I"$PROJECT_ROOT" \
-            2>&1 || true)
+            2>&1) || TIDY_STATUS=$?
 
+        if [ "$TIDY_STATUS" -gt 1 ]; then
+            print_fail "$file (clang-tidy exited with status $TIDY_STATUS)"
+            echo "$OUTPUT" | tail -3 | print_indented
+            TIDY_ERRORS=$((TIDY_ERRORS + 1))
         # Check for errors (Critical)
-        if echo "$OUTPUT" | grep -q "error:"; then
+        elif echo "$OUTPUT" | grep -q "error:"; then
             print_fail "$file (critical issues)"
             # Show first few errors
             echo "$OUTPUT" | grep "error:" | head -3 | while read -r line; do
                 echo "    $line"
             done
+            TIDY_ERRORS=$((TIDY_ERRORS + 1))
+        elif [ "$TIDY_STATUS" -ne 0 ]; then
+            print_fail "$file (clang-tidy exited with status $TIDY_STATUS without diagnostics)"
+            echo "$OUTPUT" | tail -3 | print_indented
             TIDY_ERRORS=$((TIDY_ERRORS + 1))
         # Check for warnings (Major/Minor)
         elif echo "$OUTPUT" | grep -q "warning:"; then
