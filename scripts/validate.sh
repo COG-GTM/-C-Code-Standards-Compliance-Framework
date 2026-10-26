@@ -11,7 +11,7 @@
 # Exit codes:
 #   0 - All checks passed
 #   1 - Format violations found (Critical for CI)
-#   2 - clang-tidy violations found
+#   2 - clang-tidy violations found (or clang-tidy/its config unavailable)
 #   3 - Both format and tidy violations found
 #
 # Examples:
@@ -178,32 +178,53 @@ print_section "clang-tidy analysis"
 # Only analyze source files (not headers)
 SOURCE_FILES=$(echo "$FILES" | grep -E '\.(c|cpp|cc|cxx)$' || true)
 
+TIDY_CONFIG="$PROJECT_ROOT/.clang-tidy"
+
 if [ -z "$SOURCE_FILES" ]; then
     print_info "No source files to analyze (headers only)"
 else
+    # Fail closed: a missing tool or config must never be reported as a pass
+    if ! command -v clang-tidy >/dev/null 2>&1; then
+        print_fail "clang-tidy not found on PATH; static analysis cannot run"
+        TIDY_ERRORS=$(echo "$SOURCE_FILES" | wc -l | tr -d ' ')
+        SOURCE_FILES=""
+    elif [ ! -r "$TIDY_CONFIG" ]; then
+        print_fail "clang-tidy config not readable: $TIDY_CONFIG"
+        TIDY_ERRORS=$(echo "$SOURCE_FILES" | wc -l | tr -d ' ')
+        SOURCE_FILES=""
+    fi
+
     for file in $SOURCE_FILES; do
-        # Run clang-tidy
+        # Run clang-tidy, keeping its exit status
+        TIDY_STATUS=0
         OUTPUT=$(clang-tidy \
-            --config-file="$PROJECT_ROOT/.clang-tidy" \
+            --config-file="$TIDY_CONFIG" \
             "$file" \
             -- \
             -I"$TARGET_DIR" \
             -I"$PROJECT_ROOT" \
-            2>&1 || true)
+            2>&1) || TIDY_STATUS=$?
 
         # Check for errors (Critical)
-        if echo "$OUTPUT" | grep -q "error:"; then
+        if echo "$OUTPUT" | grep -qi "error:"; then
             print_fail "$file (critical issues)"
             # Show first few errors
-            echo "$OUTPUT" | grep "error:" | head -3 | while read -r line; do
+            echo "$OUTPUT" | grep -i "error:" | head -3 | while read -r line; do
+                echo "    $line"
+            done
+            TIDY_ERRORS=$((TIDY_ERRORS + 1))
+        # Non-zero exit without recognised errors is a tool failure
+        elif [ "$TIDY_STATUS" -ne 0 ]; then
+            print_fail "$file (clang-tidy failed with exit code $TIDY_STATUS)"
+            echo "$OUTPUT" | head -3 | while read -r line; do
                 echo "    $line"
             done
             TIDY_ERRORS=$((TIDY_ERRORS + 1))
         # Check for warnings (Major/Minor)
-        elif echo "$OUTPUT" | grep -q "warning:"; then
+        elif echo "$OUTPUT" | grep -qi "warning:"; then
             print_warn "$file (warnings)"
             # Show first few warnings
-            echo "$OUTPUT" | grep "warning:" | head -3 | while read -r line; do
+            echo "$OUTPUT" | grep -i "warning:" | head -3 | while read -r line; do
                 echo "    $line"
             done
             TIDY_WARNINGS=$((TIDY_WARNINGS + 1))
