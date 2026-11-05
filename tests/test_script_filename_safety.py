@@ -8,7 +8,6 @@ Run: pytest tests/test_script_filename_safety.py -v
 
 import json
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -113,10 +112,6 @@ def test_safe_path_prefixes_leading_dash():
     assert result.stdout.splitlines() == ["./-x.c", "src/a.c"]
 
 
-@pytest.mark.skipif(
-    shutil.which("bear") is not None,
-    reason="bear installed; manual compile_commands generation not exercised",
-)
 def test_compile_commands_stays_valid_json_with_hostile_names(tmp_path):
     (tmp_path / INJECTED_NAME).write_text(COMPLIANT_SOURCE)
     (tmp_path / 'q", "-fplugin=x.so.c').write_text(COMPLIANT_SOURCE)
