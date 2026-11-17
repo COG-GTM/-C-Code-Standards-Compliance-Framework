@@ -475,10 +475,7 @@ more_legacy();
 ```
 
 ### Suppress File
-```c
-// At top of file:
-// NOLINTFILE(check-name)
-```
+clang-tidy has no whole-file suppression comment. Wrap the file in `NOLINTBEGIN`/`NOLINTEND` (above), or leave the file out of the clang-tidy run.
 
 **Always document why suppression is needed.**
 
