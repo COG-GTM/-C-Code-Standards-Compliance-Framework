@@ -51,7 +51,7 @@ The README's GitHub Actions and GitLab CI snippets are examples to copy; the rep
 ### Editor: clangd
 
 1. The clangd extension (enabled through `.vscode/settings.json`) starts clangd for C/C++ files.
-2. clangd takes per-file compile flags from `compile_commands.json`; without it, it falls back to the `CompileFlags` in `.clangd`.
+2. clangd takes per-file compile flags from `compile_commands.json` (or guesses them when it is missing), then always applies `.clangd`'s `CompileFlags`: it adds `-I. -Iinclude -Isrc -std=c17 -Wall -Wextra -Wpedantic -xc` and strips other `-W*` flags. So every file is compiled as C17, even when the database says C++.
 3. clangd runs the clang-tidy checks from `.clang-tidy`, adjusted by the `Add`/`Remove` lists in `.clangd`, and formats with `.clang-format`. `.clangd` re-adds whole groups such as `cert-*`, so a few checks that `.clang-tidy` disables can still show in the editor.
 
 `scripts/generate-compile-commands.sh [directory]` tries, in order: CMake with `CMAKE_EXPORT_COMPILE_COMMANDS=ON` (if `CMakeLists.txt` exists), Bear around `make` (if Bear and a Makefile exist), a scan of all C/C++ files, and finally a one-entry template pointing at `src/main.c`.

@@ -67,7 +67,7 @@ clangd runs the checks in `.clang-tidy`, and `.clang-tidy` needs clang-tidy/clan
 
 ### Step 3: Generate compile_commands.json
 
-clangd needs `compile_commands.json` to understand your project structure. The file is machine-specific (it holds absolute paths), so generate it locally and keep it out of version control. Without it, clangd falls back to the `CompileFlags` in `.clangd`.
+clangd needs `compile_commands.json` to understand your project structure. The file is machine-specific (it holds absolute paths), so generate it locally and keep it out of version control. `.clangd`'s `CompileFlags` are applied on top of it either way (see [.clangd](#clangd) below).
 
 **Option A: Use the included script**
 ```bash
@@ -152,7 +152,7 @@ Windsurf will automatically detect and use clangd for C/C++ files.
 
 ## How It Works
 
-The editor talks to clangd over the Language Server Protocol. clangd reads per-file flags from `compile_commands.json` (or the fallback flags in `.clangd`), runs the clang-tidy checks from `.clang-tidy` adjusted by the `Add`/`Remove` lists in `.clangd`, and formats with `.clang-format`.
+The editor talks to clangd over the Language Server Protocol. clangd reads per-file flags from `compile_commands.json` and adds the `CompileFlags` from `.clangd` on top, runs the clang-tidy checks from `.clang-tidy` adjusted by the `Add`/`Remove` lists in `.clangd`, and formats with `.clang-format`.
 
 ![Architecture diagram](diagrams/architecture.png)
 
@@ -188,7 +188,7 @@ InlayHints:
   Designators: Yes
 ```
 
-`-xc` makes clangd treat every file as C; remove it for C++ projects.
+`CompileFlags` apply to every file, including those listed in `compile_commands.json`: `-xc` and `-std=c17` make clangd treat every file as C17 even if the database says C++, so remove them for C++ projects.
 
 ### compile_commands.json
 
