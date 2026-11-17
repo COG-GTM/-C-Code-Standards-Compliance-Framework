@@ -1,0 +1,65 @@
+// Architecture of the C/C++ Code Standards Compliance Framework (main branch).
+// Render with ./render.sh (needs Graphviz). Edit this file, not the PNG/SVG.
+digraph framework {
+  graph [rankdir=TB, fontname="DejaVu Sans", fontsize=20, nodesep=0.5, ranksep=0.7, newrank=true,
+         pad=0.3, bgcolor=white, labelloc=t,
+         label="C/C++ Code Standards Compliance Framework: how the pieces connect"];
+  node  [shape=box, style="rounded,filled", fontname="DejaVu Sans", fontsize=16, fillcolor=white, color="#555555"];
+  edge  [fontname="DejaVu Sans", fontsize=13, color="#555555"];
+
+  subgraph cluster_entry {
+    label="Where checks run"; style="rounded,filled"; fillcolor="#fff8e6"; color="#d4b25a";
+    editor   [label="Editor (Windsurf / VSCode)\nclangd extension"];
+    validate [label="scripts/validate.sh <dir> [--fix]\nexit 0 ok, 1 format, 2 tidy errors, 3 both"];
+    ci       [label="Your CI pipeline\n(README examples; no workflow shipped)"];
+    cascade  [label="Windsurf Cascade\n(AI review)"];
+  }
+
+  subgraph cluster_tools {
+    label="LLVM tools (installed separately)"; style="rounded,filled"; fillcolor="#eaf6ec"; color="#7fb38a";
+    clangd  [label="clangd"];
+    cf_tool [label="clang-format"];
+    ct_tool [label="clang-tidy 17+"];
+  }
+
+  subgraph cluster_config {
+    label="Shared configuration (repo root)"; style="rounded,filled"; fillcolor="#eef4fb"; color="#7a9cc6";
+    clangd_cfg   [label=".clangd\nflags, tidy check add/remove,\nindexing, inlay hints"];
+    clang_format [label=".clang-format\nAllman braces, 100 columns"];
+    clang_tidy   [label=".clang-tidy\nchecks; WarningsAsErrors\n= Critical (fails the run)"];
+    rules        [label="windsurf/c-safety-critical-rules.md\n(copy to .windsurf/rules/)"];
+  }
+
+  subgraph cluster_local {
+    label="Generated per machine (gitignored)"; style="rounded,dashed"; color="#999999";
+    vscode [label=".vscode/settings.json\nfrom vscode-settings.json.template"];
+    gen    [label="scripts/generate-compile-commands.sh\nCMake > Bear > file scan > template"];
+    ccjson [label="compile_commands.json"];
+  }
+
+  subgraph cluster_meta {
+    label="Reference and self-tests"; style="rounded,filled"; fillcolor="#f4f4f4"; color="#999999";
+    mapping  [label="rule-severity-mapping.yaml\nRule 20-46 -> Critical / Major / Minor\n(not read by any script)"];
+    examples [label="examples/compliant.c\nexamples/violations.c"];
+    tests    [label="tests/test_compliance.py\npytest + PyYAML"];
+  }
+
+  { rank=same; editor; validate; ci; cascade; }
+  { rank=same; clangd; cf_tool; ct_tool; }
+
+  editor -> clangd [label="LSP"];
+  validate -> cf_tool; validate -> ct_tool;
+  ci -> cf_tool; ci -> ct_tool;
+  cascade -> rules [dir=back, label="rules"];
+  editor -> vscode [dir=back, label="clangd args,\nformat on save"];
+
+  clangd -> clangd_cfg [dir=back]; cf_tool -> clang_format [dir=back]; ct_tool -> clang_tidy [dir=back];
+  clangd -> clang_format [dir=back, style=dashed]; clangd -> clang_tidy [dir=back, style=dashed];
+
+  clangd -> ccjson [dir=back, label="per-file flags"]; ccjson -> gen [dir=back];
+
+  rules -> mapping [dir=back, style=dashed, label="same Rule IDs"];
+  mapping -> tests [dir=back, label="parses"];
+  tests -> examples [label="runs tools on"];
+  validate -> examples [style=dotted, label="sample target"];
+}

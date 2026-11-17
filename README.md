@@ -119,8 +119,9 @@ This framework provides a **complete, ready-to-use code standards enforcement sy
 
 1. **clang-format** - Automatic code formatting (consistent style)
 2. **clang-tidy** - Static analysis (bug detection, security checks)
-3. **Severity Classification** - Triage issues as Critical, Major, or Minor
-4. **Windsurf AI Rules** - Intelligent code review with fix suggestions
+3. **clangd** - Editor integration (real-time diagnostics, completion, format on save)
+4. **Severity Classification** - Triage issues as Critical, Major, or Minor
+5. **Windsurf AI Rules** - Intelligent code review with fix suggestions
 
 Instead of writing rules from scratch or relying on inconsistent natural language guidelines, this framework gives you **deterministic, tool-enforced standards** that work the same way every time.
 
@@ -205,21 +206,26 @@ This framework solves these problems by providing:
 
 ## Quick Start
 
-### Option A: Use as GitHub Template (New Projects)
+### Option A: Start a New Project From This Repository
 
-1. Click **"Use this template"** button on GitHub
-2. Clone your new repository
+This repository is not marked as a GitHub template, so there is no "Use this template" button. Fork or clone it instead:
+
+1. Fork the repository on GitHub (or clone it and push to a new remote)
+2. Clone your copy
 3. Start coding with standards already configured
 
 ### Option B: Add to Existing Project
 
 ```bash
 # Clone this framework
-git clone https://github.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework.git
+git clone https://github.com/COG-GTM/-C-Code-Standards-Compliance-Framework.git
 
 # Copy configs to your project
 cp -C-Code-Standards-Compliance-Framework/.clang-format /path/to/your/project/
 cp -C-Code-Standards-Compliance-Framework/.clang-tidy /path/to/your/project/
+
+# (Optional) Copy the validation script; it reads the configs from the folder above scripts/
+cp -r -C-Code-Standards-Compliance-Framework/scripts /path/to/your/project/
 
 # (Optional) Copy Windsurf rules
 mkdir -p /path/to/your/project/.windsurf/rules
@@ -231,8 +237,8 @@ cp -C-Code-Standards-Compliance-Framework/windsurf/c-safety-critical-rules.md \
 
 ```bash
 # Run from your project root
-curl -sL https://raw.githubusercontent.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework/main/.clang-format -o .clang-format && \
-curl -sL https://raw.githubusercontent.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework/main/.clang-tidy -o .clang-tidy
+curl -sL https://raw.githubusercontent.com/COG-GTM/-C-Code-Standards-Compliance-Framework/main/.clang-format -o .clang-format && \
+curl -sL https://raw.githubusercontent.com/COG-GTM/-C-Code-Standards-Compliance-Framework/main/.clang-tidy -o .clang-tidy
 ```
 
 ### Verify Installation
@@ -244,9 +250,11 @@ clang-format --dry-run --Werror src/*.c
 # Run static analysis
 clang-tidy src/*.c -- -I./include
 
-# Or use the validation script
+# Or use the validation script (copied in Option B)
 ./scripts/validate.sh src/
 ```
+
+clang-tidy must be version 17 or newer: older versions reject the `SystemHeaders` key in `.clang-tidy` and fail on every file. See [Requirements](#requirements).
 
 ---
 
@@ -254,41 +262,20 @@ clang-tidy src/*.c -- -I./include
 
 ### Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Your C/C++ Project                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   ┌─────────────┐    ┌─────────────┐    ┌──────────────────┐   │
-│   │ .clang-     │    │ .clang-tidy │    │ windsurf/        │   │
-│   │ format      │    │             │    │ rules.md         │   │
-│   └──────┬──────┘    └──────┬──────┘    └────────┬─────────┘   │
-│          │                  │                     │             │
-│          ▼                  ▼                     ▼             │
-│   ┌─────────────┐    ┌─────────────┐    ┌──────────────────┐   │
-│   │ clang-      │    │ clang-tidy  │    │ Windsurf AI      │   │
-│   │ format      │    │ (analysis)  │    │ (review)         │   │
-│   │ (style)     │    │             │    │                  │   │
-│   └──────┬──────┘    └──────┬──────┘    └────────┬─────────┘   │
-│          │                  │                     │             │
-│          ▼                  ▼                     ▼             │
-│   ┌─────────────────────────────────────────────────────────┐  │
-│   │                  Consistent, Safe Code                   │  │
-│   └─────────────────────────────────────────────────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+![Architecture diagram](docs/diagrams/architecture.png)
+
+See **[docs/architecture.md](docs/architecture.md)** for what each file does, how `scripts/validate.sh` decides pass/fail, and how clangd picks up the configs. The diagram source is `docs/diagrams/architecture.dot` (render with `docs/diagrams/render.sh`).
 
 ### Workflow
 
 1. **Developer writes code** in their IDE
 2. **Pre-commit hook** (optional) runs clang-format
 3. **Developer commits** code to branch
-4. **CI pipeline** runs clang-format and clang-tidy
+4. **CI pipeline** (which you add; see [CI/CD Integration](#cicd-integration)) runs clang-format and clang-tidy, for example through `scripts/validate.sh`
 5. **Windsurf** (if used) provides AI-assisted review
-6. **Issues classified** as Critical (block), Major (review), Minor (warn)
+6. **Results**: formatting issues and clang-tidy errors (the `WarningsAsErrors` checks in `.clang-tidy`) fail the run; other clang-tidy findings are reported as warnings
 7. **Developer fixes** issues based on severity
-8. **Code merges** when all Critical issues resolved
+8. **Code merges** when the run passes
 
 ---
 
@@ -308,7 +295,7 @@ Issues are classified into three severity levels for effective triage:
 - **Major issues** may cause bugs in edge cases or reduce maintainability
 - **Minor issues** affect readability but not functionality
 
-See `rule-severity-mapping.yaml` for the complete mapping of clang-tidy checks to severity levels.
+See `rule-severity-mapping.yaml` for the complete mapping of clang-tidy checks to severity levels. The mapping is a reference: no script reads it. What the tooling enforces is `WarningsAsErrors` in `.clang-tidy`: those checks are reported as errors and fail `scripts/validate.sh`, while all other findings are warnings.
 
 ---
 
@@ -358,6 +345,7 @@ See `docs/rule-reference.md` for detailed examples of each rule.
 ```
 .
 ├── README.md                      # This documentation
+├── .gitignore                     # Ignores build output, compile_commands.json, .vscode/
 ├── .clang-format                  # Code formatting configuration
 ├── .clang-tidy                    # Static analysis configuration
 ├── .clangd                        # clangd language server configuration
@@ -380,9 +368,13 @@ See `docs/rule-reference.md` for detailed examples of each rule.
 │   └── test_compliance.py         # Automated tests for configs
 │
 └── docs/
+    ├── architecture.md            # How the pieces fit together
+    ├── diagrams/                  # architecture.dot source, render.sh, PNG/SVG output
     ├── rule-reference.md          # Detailed rule documentation
     └── clangd-setup.md            # clangd setup guide
 ```
+
+`compile_commands.json` and `.vscode/settings.json` are created on your machine (see [clangd IDE Integration](#clangd-ide-integration)) and are gitignored, so they are not in the repository.
 
 ---
 
@@ -427,7 +419,7 @@ Create `.gitlab-ci.yml`:
 
 ```yaml
 code-standards:
-  image: ubuntu:22.04
+  image: ubuntu:24.04  # clang-tidy 18; 22.04 ships 14, which rejects this .clang-tidy
   before_script:
     - apt-get update && apt-get install -y clang-format clang-tidy
   script:
@@ -485,7 +477,7 @@ clangd --version
 **Ubuntu/Debian:**
 ```bash
 sudo apt-get update
-sudo apt-get install clangd-15  # or just 'clangd'
+sudo apt-get install clangd  # Ubuntu 24.04 ships clangd 18; on 22.04 use clangd-15 or newer
 
 # Verify
 clangd --version
@@ -525,9 +517,9 @@ cd /path/to/your/project
 ./scripts/generate-compile-commands.sh
 ```
 
-**Option B: Use this repo as a template (new projects)**
-1. Click "Use this template" on GitHub
-2. Clone your new repo
+**Option B: Fork this repo (new projects)**
+1. Fork the repository on GitHub (it is not a GitHub template)
+2. Clone your fork
 3. Run `./scripts/generate-compile-commands.sh`
 4. Start coding!
 
@@ -644,10 +636,9 @@ malloc(size);  // NOLINT(clang-analyzer-unix.Malloc)
 // NOLINTBEGIN(bugprone-unused-return-value)
 legacy_function_call();
 // NOLINTEND(bugprone-unused-return-value)
-
-// Whole file (add at top)
-// NOLINTFILE(check-name)
 ```
+
+clang-tidy has no whole-file suppression comment. To skip a whole file, wrap it in `NOLINTBEGIN`/`NOLINTEND` or leave it out of the files you pass to clang-tidy.
 
 ---
 
@@ -658,12 +649,14 @@ legacy_function_call();
 | Tool | Minimum Version | Purpose |
 |------|-----------------|---------|
 | clang-format | 14.0+ | Code formatting |
-| clang-tidy | 14.0+ | Static analysis |
+| clang-tidy | 17.0+ | Static analysis (`.clang-tidy` uses the `SystemHeaders` key, which 16 and earlier reject) |
 
 ### Optional Tools
 
 | Tool | Purpose |
 |------|---------|
+| clangd | Editor integration |
+| Graphviz | Re-rendering `docs/diagrams/architecture.dot` |
 | Python 3.8+ | Running tests |
 | pytest | Test framework |
 | PyYAML | Parsing severity mapping |
@@ -673,8 +666,9 @@ legacy_function_call();
 **Ubuntu/Debian:**
 ```bash
 sudo apt-get update
-sudo apt-get install -y clang-format clang-tidy
+sudo apt-get install -y clang-format clang-tidy   # Ubuntu 24.04: version 18
 ```
+Ubuntu 22.04's default `clang-tidy` is 14, which is too old. Install clang-tidy 17+ from [apt.llvm.org](https://apt.llvm.org/) or `pip install "clang-tidy>=17"`.
 
 **macOS (Homebrew):**
 ```bash
@@ -736,8 +730,8 @@ MIT License - Free for use in any project, commercial or open source.
 
 ## Support
 
-- **Issues:** https://github.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework/issues
-- **Discussions:** https://github.com/COG-GTM/-C-C-Code-Standards-Compliance-Framework/discussions
+- **Issues:** https://github.com/COG-GTM/-C-Code-Standards-Compliance-Framework/issues
+- **Discussions:** https://github.com/COG-GTM/-C-Code-Standards-Compliance-Framework/discussions
 
 ---
 
