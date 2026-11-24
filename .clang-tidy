@@ -38,21 +38,33 @@ Checks: >
 # =============================================================================
 # CRITICAL CHECKS - Treated as errors (will cause non-zero exit code)
 # =============================================================================
-# These checks map to Critical severity rules and should block merges
+# These checks map to Critical severity rules and should block merges.
+# Must cover every check listed under `critical` in rule-severity-mapping.yaml
+# (enforced by tests/test_critical_checks_enforced.py).
 WarningsAsErrors: >
   bugprone-unused-return-value,
+  cert-err33-c,
+  bugprone-not-null-terminated-result,
+  bugprone-stringview-nullptr,
+  bugprone-string-literal-with-embedded-nul,
   clang-analyzer-core.NullDereference,
-  clang-analyzer-core.uninitialized.*,
+  clang-analyzer-core.NonNullParamChecker,
   clang-analyzer-unix.Malloc,
   clang-analyzer-unix.MallocSizeof,
   clang-analyzer-unix.MismatchedDeallocator,
-  clang-analyzer-security.*,
-  cert-err33-c,
-  cert-err34-c,
+  clang-analyzer-cplusplus.NewDelete,
+  clang-analyzer-cplusplus.NewDeleteLeaks,
   bugprone-use-after-move,
   bugprone-double-free,
-  bugprone-sizeof-expression,
-  bugprone-string-literal-with-embedded-nul
+  clang-analyzer-core.StackAddressEscape,
+  clang-analyzer-core.uninitialized.*,
+  clang-analyzer-core.UndefinedBinaryOperatorResult,
+  clang-analyzer-security.*,
+  cert-msc30-c,
+  cert-msc50-cpp,
+  cert-env33-c,
+  cert-err34-c,
+  bugprone-sizeof-expression
 
 # =============================================================================
 # CHECK OPTIONS

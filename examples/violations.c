@@ -107,6 +107,18 @@ void rule_24_violation_use_after_free(void)
 }
 
 /**
+ * Rule 24 VIOLATION: Returning the address of a stack buffer
+ *
+ * Expected clang-tidy warnings:
+ * - clang-analyzer-core.StackAddressEscape
+ */
+char *rule_24_violation_stack_address_escape(void)
+{
+    char buffer[16] = "dangling";
+    return buffer;  /* Stack memory is gone once the function returns! */
+}
+
+/**
  * Rule 25 VIOLATION: Uninitialized variable
  *
  * Expected clang-tidy warnings:
@@ -277,7 +289,7 @@ int main(void)
     printf("- Rule 21: Buffer overflow (strcpy)\n");
     printf("- Rule 22: Null pointer dereference\n");
     printf("- Rule 23: Resource leaks\n");
-    printf("- Rule 24: Use after free\n");
+    printf("- Rule 24: Use after free, stack address escape\n");
     printf("- Rule 25: Uninitialized variables\n");
     printf("- Rule 26: Insecure random\n");
     printf("- Rule 30: Narrowing conversions\n");
