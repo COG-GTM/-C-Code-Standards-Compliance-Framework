@@ -125,3 +125,25 @@ def test_compile_commands_stays_valid_json_with_hostile_names(tmp_path):
     assert files == sorted([INJECTED_NAME, "ok.c"])
     for entry in entries:
         assert not any("-fplugin" in a for a in entry["arguments"])
+
+
+@pytest.mark.parametrize("mode", [[], ["--fix"]])
+def test_validate_does_not_glob_expand_filenames(stub_env, tmp_path, mode):
+    src = tmp_path / "globsrc"
+    src.mkdir()
+    (src / "a.c").write_text(COMPLIANT_SOURCE)
+    (src / "[a].c").write_text(COMPLIANT_SOURCE)
+    (src / "b*.c").write_text(COMPLIANT_SOURCE)
+    (src / "bb.c").write_text(COMPLIANT_SOURCE)
+    env, log_path = stub_env
+    subprocess.run(
+        [str(SCRIPTS_DIR / "validate.sh"), ".", *mode],
+        cwd=src, env=env, capture_output=True, text=True, check=False,
+    )
+    invocations = _read_invocations(log_path)
+    expected = sorted(["./a.c", "./[a].c", "./b*.c", "./bb.c"])
+
+    format_operands = [inv[-1] for inv in invocations if inv[0] == "clang-format"]
+    assert sorted(format_operands) == expected
+    tidy_operands = [inv[2] for inv in invocations if inv[0] == "clang-tidy"]
+    assert sorted(tidy_operands) == expected
