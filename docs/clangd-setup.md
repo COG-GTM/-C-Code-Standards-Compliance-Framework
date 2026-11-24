@@ -71,6 +71,18 @@ chmod +x scripts/generate-compile-commands.sh
 ./scripts/generate-compile-commands.sh
 ```
 
+By default the script only scans source files and writes basic entries; it does
+not run your build. For exact flags on a **trusted** project, add `--use-build`
+to generate via CMake or Bear:
+
+```bash
+./scripts/generate-compile-commands.sh --use-build
+```
+
+> **Warning:** `--use-build`, Option B and Option C run the project's
+> `CMakeLists.txt` / `Makefile` code, which can execute any command as you.
+> Do not use them on code you have not reviewed (e.g. an untrusted pull request).
+
 **Option B: CMake (recommended for CMake projects)**
 ```bash
 mkdir build && cd build

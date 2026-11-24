@@ -559,7 +559,7 @@ If something isn't working, see **[docs/clangd-setup.md](docs/clangd-setup.md)**
 | File | Purpose |
 |------|---------|
 | `.clangd` | Tells clangd which checks to run, include paths, etc. |
-| `scripts/generate-compile-commands.sh` | Creates `compile_commands.json` (clangd needs this to understand your project) |
+| `scripts/generate-compile-commands.sh` | Creates `compile_commands.json` (clangd needs this to understand your project). Scans files only; `--use-build` runs CMake/Bear and executes project build code, so use it only on trusted projects |
 | `vscode-settings.json.template` | Editor settings to enable clangd and disable conflicting extensions |
 | `docs/clangd-setup.md` | Detailed setup guide with troubleshooting |
 
