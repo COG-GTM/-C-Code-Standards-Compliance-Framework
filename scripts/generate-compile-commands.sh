@@ -5,14 +5,19 @@
 # This script generates a compile_commands.json file that clangd uses for
 # intelligent code analysis, completion, and navigation.
 #
-# Usage: ./scripts/generate-compile-commands.sh [directory]
+# Usage: ./scripts/generate-compile-commands.sh [--use-build] [directory]
 #
-# The script supports multiple build systems:
-#   1. CMake (preferred) - if CMakeLists.txt exists
-#   2. Bear - intercepts make/gcc commands
-#   3. Manual generation - creates basic entries for all C/C++ files
+# By default the script only scans the source tree and writes basic entries
+# for every C/C++ file (no project code is executed).
+#
+# With --use-build it first tries the project's build system:
+#   1. CMake - if CMakeLists.txt exists (runs `cmake` configure)
+#   2. Bear  - if a Makefile exists (runs `make clean` and `bear -- make`)
+# WARNING: CMakeLists.txt and Makefiles can run arbitrary commands. Only use
+# --use-build on projects you trust.
 #
 # Arguments:
+#   --use-build Run CMake / Bear (executes project build code)
 #   directory   Target directory to scan (default: current directory)
 # =============================================================================
 
@@ -30,9 +35,48 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Target directory
-TARGET_DIR="${1:-.}"
-cd "$TARGET_DIR"
+usage() {
+    echo "Usage: $0 [--use-build] [directory]"
+    echo ""
+    echo "  --use-build  Generate via CMake or Bear. This EXECUTES the project's"
+    echo "               CMakeLists.txt / Makefile code; only use on trusted projects."
+    echo "  directory    Target directory to scan (default: current directory)"
+}
+
+USE_BUILD=false
+TARGET_DIR=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --use-build)
+            USE_BUILD=true
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            [ -n "$TARGET_DIR" ] && { usage >&2; exit 2; }
+            TARGET_DIR="$1"
+            ;;
+    esac
+    shift
+done
+if [ $# -gt 0 ]; then
+    [ -n "$TARGET_DIR" ] || [ $# -gt 1 ] && { usage >&2; exit 2; }
+    TARGET_DIR="$1"
+fi
+
+TARGET_DIR="${TARGET_DIR:-.}"
+cd -- "$TARGET_DIR"
 
 print_header() {
     echo ""
@@ -147,6 +191,12 @@ generate_manually() {
     # Check for common include directories
     [ -d "inc" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS -I./inc"
     [ -d "includes" ] && INCLUDE_FLAGS="$INCLUDE_FLAGS -I./includes"
+
+    INCLUDE_JSON=""
+    for flag in $INCLUDE_FLAGS; do
+        INCLUDE_JSON="$INCLUDE_JSON
+      \"$flag\","
+    done
     
     # Start JSON array
     echo "[" > compile_commands.json
@@ -180,8 +230,7 @@ generate_manually() {
       "-c",
       "$STD",
       "-Wall",
-      "-Wextra",
-      $INCLUDE_FLAGS
+      "-Wextra",$INCLUDE_JSON
       "$ABS_FILE",
       "-o",
       "${ABS_FILE%.c*}.o"
@@ -192,9 +241,6 @@ EOF
     
     echo "" >> compile_commands.json
     echo "]" >> compile_commands.json
-    
-    # Fix the include flags formatting (they need to be separate array elements)
-    # This is a simplified version - proper JSON would split each -I flag
     
     FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
     print_success "Generated compile_commands.json with $FILE_COUNT entries"
@@ -243,16 +289,21 @@ print_header "Generate compile_commands.json"
 print_info "Working directory: $(pwd)"
 print_info "Project root: $PROJECT_ROOT"
 
-# Try methods in order of preference
-if [ -f CMakeLists.txt ]; then
-    if generate_with_cmake; then
+if [ "$USE_BUILD" = true ]; then
+    print_warn "--use-build: running the project's CMake/Make code (only do this for trusted projects)"
+
+    if [ -f CMakeLists.txt ]; then
+        if generate_with_cmake; then
+            exit 0
+        fi
+        print_warn "CMake generation failed, trying alternatives..."
+    fi
+
+    if generate_with_bear; then
         exit 0
     fi
-    print_warn "CMake generation failed, trying alternatives..."
-fi
-
-if generate_with_bear; then
-    exit 0
+elif [ -f CMakeLists.txt ] || [ -f Makefile ] || [ -f makefile ]; then
+    print_info "Build files found but not executed; pass --use-build to use CMake/Bear (runs project code, trusted projects only)"
 fi
 
 if generate_manually; then
@@ -264,6 +315,6 @@ create_template
 
 echo ""
 print_info "compile_commands.json is required for full clangd functionality"
-print_info "For best results, use CMake with CMAKE_EXPORT_COMPILE_COMMANDS=ON"
-print_info "Or install Bear: brew install bear (macOS) / apt install bear (Linux)"
+print_info "For best results on trusted projects, rerun with --use-build (CMake or Bear)"
+print_info "Install Bear: brew install bear (macOS) / apt install bear (Linux)"
 echo ""
