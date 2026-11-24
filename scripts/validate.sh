@@ -13,6 +13,11 @@
 #   1 - Format violations found (Critical for CI)
 #   2 - clang-tidy violations found
 #   3 - Both format and tidy violations found
+#   4 - No critical checks could be read from the severity mapping
+#
+# A clang-tidy diagnostic counts as critical if it is an error, or a warning
+# from any check listed under `critical` in rule-severity-mapping.yaml
+# (override the path with SEVERITY_MAPPING=/path/to/mapping.yaml).
 #
 # Examples:
 #   ./scripts/validate.sh                    # Check current directory
@@ -38,6 +43,7 @@ NC='\033[0m' # No Color
 # Find script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+SEVERITY_MAPPING="${SEVERITY_MAPPING:-$PROJECT_ROOT/rule-severity-mapping.yaml}"
 
 # Parse arguments
 TARGET_DIR="."
@@ -90,6 +96,42 @@ print_info() {
     echo -e "${BLUE}ℹ INFO${NC}: $1"
 }
 
+# Print the check names listed under severity_levels.critical in the mapping.
+load_critical_checks() {
+    awk '
+        /^[^[:space:]#]/ { in_sev = ($0 ~ /^severity_levels:/); in_crit = 0; in_checks = 0; next }
+        in_sev && /^  [A-Za-z_]+:/ { in_crit = ($0 ~ /^  critical:/); in_checks = 0; next }
+        !in_crit { next }
+        /^[[:space:]]+checks:[[:space:]]*$/ { in_checks = 1; next }
+        in_checks && /^[[:space:]]+-[[:space:]]+[A-Za-z0-9_.*-]+[[:space:]]*$/ {
+            sub(/^[[:space:]]+-[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; next
+        }
+        in_checks && /^[[:space:]]*(#.*)?$/ { next }
+        { in_checks = 0 }
+    ' "$1"
+}
+
+# Print clang-tidy warning lines whose [check,...] list names a critical check.
+critical_warning_lines() {
+    local line names name pattern
+    local -a name_list
+    while IFS= read -r line; do
+        [[ "$line" == *"warning:"*"["*"]" ]] || continue
+        names=${line##*\[}
+        names=${names%\]}
+        IFS=',' read -ra name_list <<< "$names"
+        for name in "${name_list[@]}"; do
+            while IFS= read -r pattern; do
+                # shellcheck disable=SC2053 # pattern may be a glob (e.g. foo.*)
+                if [[ "$name" == $pattern ]]; then
+                    echo "$line"
+                    continue 3
+                fi
+            done <<< "$CRITICAL_CHECKS"
+        done
+    done <<< "$1"
+}
+
 # -----------------------------------------------------------------------------
 # Main Script
 # -----------------------------------------------------------------------------
@@ -100,6 +142,12 @@ echo "Configuration:"
 echo "  Target directory: $TARGET_DIR"
 echo "  Fix mode: $FIX_MODE"
 echo "  Project root: $PROJECT_ROOT"
+
+CRITICAL_CHECKS=$(load_critical_checks "$SEVERITY_MAPPING" 2>/dev/null || true)
+if [ -z "$CRITICAL_CHECKS" ]; then
+    print_fail "No critical checks found in $SEVERITY_MAPPING"
+    exit 4
+fi
 
 # Find C/C++ files
 FILES=$(find "$TARGET_DIR" -type f \( \
@@ -191,11 +239,14 @@ else
             -I"$PROJECT_ROOT" \
             2>&1 || true)
 
-        # Check for errors (Critical)
-        if echo "$OUTPUT" | grep -q "error:"; then
+        CRITICAL_LINES=$(critical_warning_lines "$OUTPUT")
+
+        # Check for errors or critical-check warnings (Critical)
+        if echo "$OUTPUT" | grep -q "error:" || [ -n "$CRITICAL_LINES" ]; then
             print_fail "$file (critical issues)"
-            # Show first few errors
-            echo "$OUTPUT" | grep "error:" | head -3 | while read -r line; do
+            # Show first few critical diagnostics
+            { echo "$OUTPUT" | grep "error:" || true; echo "$CRITICAL_LINES"; } \
+                | grep -v '^$' | head -3 | while read -r line; do
                 echo "    $line"
             done
             TIDY_ERRORS=$((TIDY_ERRORS + 1))
